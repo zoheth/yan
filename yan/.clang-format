@@ -1,0 +1,7 @@
+BasedOnStyle: LLVM
+
+ColumnLimit: 0 
+AllowAllParametersOfDeclarationOnNextLine: true
+BreakBeforeParameter: Logical
+# BinPackParameters: true
+# BinPackArguments: true
