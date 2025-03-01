@@ -1,1 +1,1 @@
-from .simple_mul import test_jit
+from .simple_gemm import test_simple_gemm

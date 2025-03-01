@@ -1,7 +1,24 @@
 BasedOnStyle: LLVM
 
-ColumnLimit: 0 
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+ColumnLimit: 0
 AllowAllParametersOfDeclarationOnNextLine: true
 BreakBeforeParameter: Logical
-# BinPackParameters: true
-# BinPackArguments: true
+
+# Add these settings for braces on new line
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: true
+  AfterStruct: true
+  AfterEnum: true
+  AfterNamespace: true
+  AfterControlStatement: Always
+  AfterExternBlock: true
+BreakBeforeBraces: Custom
+
+# Force function declaration styles
+AlwaysBreakAfterReturnType: All
+AlwaysBreakAfterDefinitionReturnType: All

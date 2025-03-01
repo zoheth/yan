@@ -1,4 +1,4 @@
-from yan.jit_kernels import test_jit
+from yan.jit_kernels import test_simple_gemm
 
 if __name__ == "__main__":
-    test_jit()
+    test_simple_gemm()
