@@ -6,7 +6,7 @@ from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-jit_include_dir = ('yan/include/yan',)
+jit_include_dir = ('yan/include/gemm',)
 third_party_include_dirs = (
     'third-party/cutlass/include/cute',
     'third-party/cutlass/include/cutlass',
@@ -24,7 +24,8 @@ class PostDevelopCommand(develop):
             dirname = d.split('/')[-1]
             src_dir = f'{current_dir}/{d}'
             dst_dir = f'{current_dir}/yan/include/{dirname}'
-            if os.path.exists(src_dir):
+            assert os.path.exists(src_dir)
+            if os.path.exists(dst_dir):
                 assert os.path.islink(dst_dir)
                 os.unlink(dst_dir)
             os.symlink(src_dir, dst_dir, target_is_directory=True)
@@ -70,7 +71,7 @@ if __name__ == '__main__':
         packages=['yan', 'yan/jit', 'yan/jit_kernels'],
         package_data={
             'yan': [
-                'include/yan/**/*',
+                'include/gemm/**/*',
                 'include/cute/**/*',
                 'include/cutlass/**/*',
             ]

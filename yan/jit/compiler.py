@@ -26,7 +26,7 @@ def get_jit_include_dir() -> str:
 @functools.lru_cache(maxsize=None)
 def get_yan_version() -> str:
     # Update include directories
-    include_dir = f'{get_jit_include_dir()}/yan'
+    include_dir = f'{get_jit_include_dir()}/gemm'
     assert os.path.exists(include_dir), f'Cannot find Yan include directory {include_dir}'
     md5 = hashlib.md5()
     for filename in filter(lambda x: x.endswith('.cuh'), sorted(os.listdir(include_dir))):
