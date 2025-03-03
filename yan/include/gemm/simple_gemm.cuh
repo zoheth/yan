@@ -18,7 +18,7 @@ template <class ProblemShape, class CtaTiler,
           class BStride, class BSmemLayout, class TiledCopyB,
           class CStride, class CSmemLayout, class TiledMma>
 
-__global__ static __launch_bounds__(decltype(size(TiledMma{}))::value) void gemm_device(
+__global__ static __launch_bounds__(decltype(size(TiledMma{}))::value) void gemm_cute(
     ProblemShape shape_MNK, CtaTiler cta_tiler,
     float const *A, AStride dA, ASmemLayout sA_layout, TiledCopyA copy_a,
     float const *B, BStride dB, BSmemLayout sB_layout, TiledCopyB copy_b,
@@ -210,7 +210,8 @@ gemm_nt(int m, int n, int k,
     // Define NT strides (mixed)
     auto dA = make_stride(Int<1>{}, ldA); // (dM, dK)
     auto dB = make_stride(Int<1>{}, ldB); // (dN, dK)
-    auto dC = make_stride(Int<1>{}, ldC); // (dM, dN)
+    // auto dC = make_stride(Int<1>{}, ldC); // (dM, dN)
+    auto dC = make_stride(ldC, Int<1>{}); // (dM, dN)
 
     // Define CTA tile sizes (static)
     auto bM = Int<128>{};
@@ -238,9 +239,9 @@ gemm_nt(int m, int n, int k,
     dim3 dimBlock(size(mmaC));
     dim3 dimGrid(size(ceil_div(M, bM)),
                  size(ceil_div(N, bN)));
-    gemm_device<<<dimGrid, dimBlock, 0, stream>>>(prob_shape, cta_tiler,
-                                                  A, dA, sA, copyA,
-                                                  B, dB, sB, copyB,
-                                                  C, dC, sC, mmaC,
-                                                  alpha, beta);
+    gemm_cute<<<dimGrid, dimBlock, 0, stream>>>(prob_shape, cta_tiler,
+                                                A, dA, sA, copyA,
+                                                B, dB, sB, copyB,
+                                                C, dC, sC, mmaC,
+                                                alpha, beta);
 }

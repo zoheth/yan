@@ -72,7 +72,7 @@ class JITTuner:
         assert best_runtime is not None, f'Failed to tune JIT kernel {name} with keys {keys}'
 
         # Cache the best runtime and return
-        if os.getenv('DG_JIT_DEBUG', None) or os.getenv('YAN_PRINT_AUTOTUNE', None):
+        if os.getenv('YAN_JIT_DEBUG', None) or os.getenv('YAN_PRINT_AUTOTUNE', None):
             print(f'Best JIT kernel {name} with keys {keys} has tuned keys {best_keys} and time {best_time}')
         self.tuned[signature] = best_runtime
         return best_runtime

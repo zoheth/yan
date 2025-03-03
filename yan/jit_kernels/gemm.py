@@ -2,7 +2,7 @@ import torch
 from typing import Tuple
 
 from .tuner import jit_tuner
-from .utils import get_num_sms, ceil_div, get_col_major_tma_aligned_tensor, get_m_alignment_for_contiguous_layout
+from .utils import get_num_sms, ceil_div, get_col_major_tensor
 
 # C++ code templates
 includes = ('"gemm/fp8_gemm.cuh"', )
