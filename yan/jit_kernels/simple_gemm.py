@@ -21,7 +21,7 @@ def gemm_float_nt(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor,
     n, k_ = b.shape
     m_, n_ = c.shape
     
-    assert m % 128 == 0 and n % 128 == 0
+    assert m % 128 == 0 and n % 64 == 0
     
     assert m == m_ and n == n_ and k == k_
     assert a.dtype == torch.float32 and b.dtype == torch.float32 and c.dtype == torch.float32

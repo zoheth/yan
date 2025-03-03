@@ -20,7 +20,7 @@ def test_simple_gemm():
     print('Testing simple GEMM:')
     
     for m in (128, 4096):
-        for k, n in [(7168, 2048), (1536, 24576), (512, 32768), (16384, 7168), (7168, 4096), (2048, 7168)]:
+        for k, n in [(7168, 2112), (1536, 24576), (512, 32768), (16384, 7168), (7168, 4096), (2048, 7168)]:
             x, y, out, ref_out = construct(m, k, n)
             yan.gemm_float_nt(x, y, out)
             diff = calc_diff(out, ref_out)
@@ -32,7 +32,7 @@ def test_simple_gemm():
                 x, y, out, ref_out = construct(m, k, n)
                 yan.gemm_float_nt(x, y, out)
             
-            t = bench_kineto(test_func, 'gemm_cute', suppress_kineto_output=True, trace_path='gemm_cute.json')
+            t = bench_kineto(test_func, 'gemm_cute', suppress_kineto_output=True, flush_l2=True)
             # t = bench_kineto(test_func, 'tensorop_s1688gemm', suppress_kineto_output=True)
             print(f' > Performance (m={m:5}, n={n:5}, k={k:5}): {t * 1e6:4.0f} us | '
                   f'throughput: {2 * m * n * k / t / 1e12:4.0f} TFLOPS, '

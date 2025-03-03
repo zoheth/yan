@@ -215,8 +215,8 @@ gemm_nt(int m, int n, int k,
 
     // Define CTA tile sizes (static)
     auto bM = Int<128>{};
-    auto bN = Int<128>{};
-    auto bK = Int<8>{};
+    auto bN = Int<64>{};
+    auto bK = Int<16>{};
     auto cta_tiler = make_shape(bM, bN, bK); // (BLK_M, BLK_N, BLK_K)
     auto bP = Int<3>{};                      // Pipeline
 
@@ -228,14 +228,15 @@ gemm_nt(int m, int n, int k,
     // Define the thread layouts (static)
 
     TiledCopy copyA = make_tiled_copy(Copy_Atom<SM80_CP_ASYNC_CACHEALWAYS<uint128_t>, float>{},
-                                      Layout<Shape<_32, _8>>{}, // Thr layout 32x8 m-major
-                                      Layout<Shape<_4, _1>>{}); // Val layout  4x1 m-major
+                                      Layout<Shape<_16, _8>>{}, // Thr layout
+                                      Layout<Shape<_8, _2>>{}); // Val layout
     TiledCopy copyB = make_tiled_copy(Copy_Atom<SM80_CP_ASYNC_CACHEALWAYS<uint128_t>, float>{},
-                                      Layout<Shape<_32, _8>>{}, // Thr layout 32x8 n-major
-                                      Layout<Shape<_4, _1>>{}); // Val layout  4x1 n-major
+                                      Layout<Shape<_16, _8>>{}, // Thr layout
+                                      Layout<Shape<_4, _2>>{}); // Val layout
+
 
     TiledMMA mmaC = make_tiled_mma(UniversalFMA<float, float, float>{},
-                                   Layout<Shape<_16, _16, _1>>{}); // 16x16x1 TiledMMA
+                                   Layout<Shape<_16, _8, _1>>{}); // Thr layout
     dim3 dimBlock(size(mmaC));
     dim3 dimGrid(size(ceil_div(M, bM)),
                  size(ceil_div(N, bN)));
