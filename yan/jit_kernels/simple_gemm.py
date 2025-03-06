@@ -56,7 +56,7 @@ def gemm_float_nt(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor,
     
     runtime(*args)
 
-def test_simple_gemm_():
+def accuracy_test():
     torch.manual_seed(42)
     m, n, k = 5120, 2048, 4096
     a = torch.randn(m, k, dtype=torch.float32, device='cuda')
@@ -73,4 +73,4 @@ def test_simple_gemm_():
     print("Simple GEMM test passed!")
 
 if __name__ == "__main__":
-    test_simple_gemm_()
+    accuracy_test()
