@@ -158,37 +158,34 @@ fp16_gemm_cute(
                 // Commit the smem for smem_pipe_read
                 cp_async_wait<K_PIPE_MAX - 2>();
                 __syncthreads();
-
-                smem_pipe_read = (smem_pipe_read + 1) % K_PIPE_MAX;
             }
 
             // Load A, B shmem->regs for k_block+1
             auto k_block_next = (k_block + 1) % K_BLOCK_MAX; // static
-            // copy(tiled_copy_a_s2r, tCsA_p(_, _, k_block_next), tCrA_view(_, _, k_block_next));
-            // copy(tiled_copy_b_s2r, tCsB_p(_, _, k_block_next), tCrB_view(_, _, k_block_next));
-            copy(tiled_copy_a_s2r, tCsA(_, _, k_block_next, smem_pipe_read), tCrA_view(_, _, k_block_next));
-            copy(tiled_copy_b_s2r, tCsB(_, _, k_block_next, smem_pipe_read), tCrB_view(_, _, k_block_next));
+            copy(tiled_copy_a_s2r, tCsA_p(_, _, k_block_next), tCrA_view(_, _, k_block_next));
+            copy(tiled_copy_b_s2r, tCsB_p(_, _, k_block_next), tCrB_view(_, _, k_block_next));
             // Copy gmem to smem before computing gemm on each k-pipe
             if (k_block == 0)
             {
-
-                if (smem_pipe_read < 8)
-                {
-                    copy(copy_a, tAgA_copy(_, _, _, k_tile_next), tAsA_copy(_, _, _, smem_pipe_write));
-                    copy(copy_b, tBgB_copy(_, _, _, k_tile_next), tBsB_copy(_, _, _, smem_pipe_write));
-                    ++k_tile_next;
-                    smem_pipe_write = (smem_pipe_write + 1) % K_PIPE_MAX;
-                }
-                // // Advance the smem pipe
-                // smem_pipe_write = smem_pipe_read;
-                // ++smem_pipe_read;
-                // smem_pipe_read = (smem_pipe_read == K_PIPE_MAX) ? 0 : smem_pipe_read;
+                copy(copy_a, tAgA_copy(_, _, _, k_tile_next), tAsA_copy(_, _, _, smem_pipe_write));
+                copy(copy_b, tBgB_copy(_, _, _, k_tile_next), tBsB_copy(_, _, _, smem_pipe_write));
                 cp_async_fence();
+                
+                // Advance the gmem tile
+                --k_tile_count;
+                if (k_tile_count > 0)
+                {
+                    ++k_tile_next;
+                }
+
+                // Advance the smem pipe
+                smem_pipe_write = smem_pipe_read;
+                ++smem_pipe_read;
+                smem_pipe_read = (smem_pipe_read == K_PIPE_MAX) ? 0 : smem_pipe_read;
             }
             // Thread-level register gemm for k_block
             gemm(mma, tCrC, tCrA(_, _, k_block), tCrB(_, _, k_block), tCrC);
         }
-        --k_tile_count;
     }
 
     auto sC = make_tensor(sA(_, _, smem_pipe_read).data(), sC_layout);

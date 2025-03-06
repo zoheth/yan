@@ -24,8 +24,6 @@ def test_cute_gemm():
             x, y, out, ref_out = construct(m, k, n)
             yan.gemm_fp16_tn(x, y, out)
             diff = calc_diff(out, ref_out)
-            print(out)
-            print(ref_out)
             assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
             
             # noinspection PyShadowingNames
@@ -35,22 +33,22 @@ def test_cute_gemm():
                 yan.gemm_fp16_tn(x, y, out)
             
             t = bench_kineto(test_func, 'fp16_gemm_cute', suppress_kineto_output=True, flush_l2=False)
-            # t = bench_kineto(test_func, 'tensorop_s1688gemm', suppress_kineto_output=True)
+            # t = bench_kineto(test_func, 'ampere', suppress_kineto_output=True)
             print(f' > Performance (m={m:5}, n={n:5}, k={k:5}): {t * 1e6:4.0f} us | '
                   f'throughput: {2 * m * n * k / t / 1e12:4.0f} TFLOPS, '
-                  f'{(m * k + k * n + m * n * 2) * 4 / 1e9 / t:4.0f} GB/s')
+                  f'{(m * k + k * n + m * n * 2) * 2 / 1e9 / t:4.0f} GB/s')
     print()       
 
 if __name__ == "__main__":
-    yan.jit_kernels.accuracy_test()
+    # yan.jit_kernels.accuracy_test()
     
-    # torch.backends.cuda.matmul.allow_tf32 = True
-    # torch.backends.cudnn.allow_tf32 = True
-    # torch.manual_seed(42)
-    # random.seed(42)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.manual_seed(42)
+    random.seed(42)
 
-    # print('Library path:')
-    # print(f' > {yan.__path__}\n')
+    print('Library path:')
+    print(f' > {yan.__path__}\n')
 
-    # test_cute_gemm()
+    test_cute_gemm()
     
