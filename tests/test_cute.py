@@ -32,7 +32,7 @@ def test_cute_gemm():
                 x, y, out, ref_out = construct(m, k, n)
                 yan.gemm_fp16_tn(x, y, out)
             
-            t = bench_kineto(test_func, 'fp16_gemm_cute', suppress_kineto_output=True, flush_l2=False)
+            t = bench_kineto(test_func, 'fp16_gemm_cute', suppress_kineto_output=True)
             # t = bench_kineto(test_func, 'ampere', suppress_kineto_output=True)
             print(f' > Performance (m={m:5}, n={n:5}, k={k:5}): {t * 1e6:4.0f} us | '
                   f'throughput: {2 * m * n * k / t / 1e12:4.0f} TFLOPS, '

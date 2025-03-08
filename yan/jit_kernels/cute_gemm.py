@@ -5,7 +5,12 @@ from .tuner import jit_tuner
 
 includes = ('"gemm/cute_gemm.cuh"', )
 template = """
-gemm_tn(m, n, k,
+// Templated args from Python JIT call
+constexpr auto BLOCK_M = {BLOCK_M};
+constexpr auto BLOCK_N = {BLOCK_N};
+constexpr auto kNumStages = {NUM_STAGES};
+
+gemm_tn<BLOCK_M, BLOCK_N, kNumStages>(m, n, k,
         A,
         B,
         C,
@@ -32,8 +37,19 @@ def gemm_fp16_tn(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> None:
     args = (m, n, k, a, b, c, stream)
     runtime = jit_tuner.compile_and_tune(
         name='gemm_fp16_tn',
-        keys={},
-        space=(),
+        keys={'BLOCK_M': 128, 'BLOCK_N': 128, 'NUM_STAGES': 3},
+        space=(
+            # {'BLOCK_M': 128, 'BLOCK_N': 64, 'NUM_STAGES': 2},
+            # {'BLOCK_M': 128, 'BLOCK_N': 128, 'NUM_STAGES': 2},
+            # {'BLOCK_M': 128, 'BLOCK_N': 256, 'NUM_STAGES': 2},
+            # {'BLOCK_M': 256, 'BLOCK_N': 64, 'NUM_STAGES': 2},
+            # {'BLOCK_M': 256, 'BLOCK_N': 128, 'NUM_STAGES': 2},
+            # {'BLOCK_M': 128, 'BLOCK_N': 64, 'NUM_STAGES': 3},
+            # {'BLOCK_M': 128, 'BLOCK_N': 128, 'NUM_STAGES': 3},
+            # {'BLOCK_M': 128, 'BLOCK_N': 256, 'NUM_STAGES': 3},
+            # {'BLOCK_M': 256, 'BLOCK_N': 64, 'NUM_STAGES': 3},
+            # {'BLOCK_M': 256, 'BLOCK_N': 128, 'NUM_STAGES': 3},
+        ),
         includes=includes,
         arg_defs=(('m', int), ('n', int), ('k', int),
                   ('A', torch.half),

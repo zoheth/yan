@@ -43,26 +43,11 @@ fp16_gemm_cute(
     Tensor tAgA_copy = thr_copy_a.partition_S(gA); // (CPY,CPY_M,CPY_K,k)
     Tensor tAsA_copy = thr_copy_a.partition_D(sA); // (CPY,CPY_M,CPY_K,PIPE)
 
-#ifdef CUTE_DEBUG
-    if (thread0())
-    {
-        print("\npartition_S(tAgA_copy): \n");
-        print(tAgA_copy);
-        print("\n");
-        print("\npartition_D(tAsA_copy): \n");
-        print(tAsA_copy);
-        print("\n");
-        print("\nThrCopy(g2s_thr_copy_a): \n");
-        print(thr_copy_a);
-        print("\n");
-    }
-#endif
-
     ThrCopy thr_copy_b = copy_b.get_slice(threadIdx.x);
     Tensor tBgB_copy = thr_copy_b.partition_S(gB); // (CPY,CPY_N,CPY_K,k)
     Tensor tBsB_copy = thr_copy_b.partition_D(sB); // (CPY,CPY_N,CPY_K,PIPE)
 
-    constexpr int K_PIPE_MAX = 3;
+    auto K_PIPE_MAX = size<3>(tAsA_copy);
 
     // Total count of tiles
     int k_tile_count = size<3>(tAgA_copy);
@@ -72,9 +57,28 @@ fp16_gemm_cute(
 #ifdef CUTE_DEBUG
     if (thread0())
     {
-        print("K_PIPE_MAX: %d\n", K_PIPE_MAX);
-        print("k_tile_count: %d\n", k_tile_count);
-        print("k_tile_next: %d\n", k_tile_next);
+        print("\nThrCopy(g2s_thr_copy_a): \n");
+        print(thr_copy_a);
+        print("\n");
+        print("\npartition_S(tAgA_copy): \n");
+        print(tAgA_copy);
+        print("\n");
+        print("\npartition_D(tAsA_copy): \n");
+        print(tAsA_copy);
+        print("\n");
+
+        print("\nThrCopy(g2s_thr_copy_b): \n");
+        print(thr_copy_b);
+        print("\n");
+        print("\npartition_S(tBgB_copy): \n");
+        print(tBgB_copy);
+        print("\n");
+        print("\npartition_D(tBsB_copy): \n");
+        print(tBsB_copy);
+        print("\n");
+
+        print("K_PIPE_MAX: %d\n", (int)K_PIPE_MAX);
+        print("k_tile_count: %d\n", (int)k_tile_count);
     }
 #endif
 
@@ -93,7 +97,7 @@ fp16_gemm_cute(
     }
 
     ThrMMA thr_mma = mma.get_slice(threadIdx.x);
-    Tensor tCgc = thr_mma.partition_C(gC);
+    Tensor tCgC = thr_mma.partition_C(gC);
 
     Tensor tCrA = thr_mma.partition_fragment_A(gA(_, _, 0)); // (MMA, MMA_M,MMA_K)
     Tensor tCrB = thr_mma.partition_fragment_B(gB(_, _, 0)); // (MMA, MMA_N,MMA_K)
@@ -225,6 +229,7 @@ fp16_gemm_cute(
     }
 }
 
+template <int BLOCK_M = 128, int BLOCK_N = 128, int NUM_STAGES = 3>
 void
 gemm_tn(int m, int n, int k,
         T const *A,
@@ -240,15 +245,15 @@ gemm_tn(int m, int n, int k,
     auto K = int(k);
     auto prob_shape = make_shape(M, N, K);
 
-    auto bM = Int<128>{};
-    auto bN = Int<256>{};
+    auto bM = Int<BLOCK_M>{};
+    auto bN = Int<BLOCK_N>{};
     auto bK = Int<32>{};
     auto cta_tiler = make_shape(bM, bN, bK);
-    auto bP = Int<3>{}; // Pipeline
-    auto kSmemLayoutCBatch = Int<4>{};
+    auto bP = Int<NUM_STAGES>{}; // Pipeline
+    auto kCWritebackPipes = Int<4>{};
 
     using SmemLayoutAtomAnB = decltype(composition(
-        Swizzle<3, 3, 3>{},
+        Swizzle<2, 3, 3>{},
         make_layout(make_shape(Int<8>{}, Int<bK>{}),
                     make_stride(Int<bK>{}, Int<1>{}))));
 
@@ -276,7 +281,7 @@ gemm_tn(int m, int n, int k,
         make_layout(make_shape(Int<32>{}, Int<32>{}),
                     make_stride(Int<32>{}, Int<1>{}))));
     auto sC = tile_to_shape(SmemLayoutAtomC{},
-                            make_shape(Int<32>{}, Int<32>{}, Int<kSmemLayoutCBatch>{}));
+                            make_shape(Int<32>{}, Int<32>{}, Int<kCWritebackPipes>{}));
 
     TiledCopy copyC_s2g = make_tiled_copy(Copy_Atom<UniversalCopy<uint128_t>, T>{},
                                           Layout<Shape<_32, _4>, Stride<_4, _1>>{}, // Thr layout
