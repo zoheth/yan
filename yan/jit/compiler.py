@@ -25,17 +25,24 @@ def get_jit_include_dir() -> str:
 
 @functools.lru_cache(maxsize=None)
 def get_yan_version() -> str:
-    # Update include directories
-    include_dir = f'{get_jit_include_dir()}/gemm'
-    assert os.path.exists(include_dir), f'Cannot find Yan include directory {include_dir}'
+    base_include_dir = get_jit_include_dir()
+    assert os.path.exists(base_include_dir), f'Cannot find Yan include directory {base_include_dir}'
+    
     md5 = hashlib.md5()
-    for filename in filter(lambda x: x.endswith('.cuh'), sorted(os.listdir(include_dir))):
-        with open(f'{include_dir}/{filename}', 'rb') as f:
+    
+    cuh_files = []
+    for root, _, files in os.walk(base_include_dir):
+        for file in files:
+            if file.endswith('.cuh'):
+                cuh_files.append(os.path.join(root, file))
+    
+    for file_path in sorted(cuh_files):
+        with open(file_path, 'rb') as f:
             md5.update(f.read())
 
-    # Update `interleave_ffma.py`
     with open(f'{os.path.dirname(os.path.realpath(__file__))}/interleave_ffma.py', 'rb') as f:
         md5.update(f.read())
+    
     return md5.hexdigest()[0:12]
 
 @functools.lru_cache(maxsize=None)

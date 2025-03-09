@@ -85,7 +85,6 @@ def bench_kineto(fn, kernel_names, num_tests: int = 30, suppress_kineto_output: 
     kernel_names = (kernel_names, ) if isinstance(kernel_names, str) else kernel_names
     assert all([isinstance(name, str) for name in kernel_names])
     for name in kernel_names:
-        print(sum([name in line for line in prof_lines]))
         assert sum([name in line for line in prof_lines]) == 1, f'Errors of the kernel {name} in the profiling table'
         
 
