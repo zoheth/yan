@@ -18,142 +18,87 @@ struct SumOp
     }
 };
 
-template <class T, class ReduceOp>
+template <class T>
 __device__ __forceinline__ T
-warp_reduce(T val, ReduceOp op)
+warp_reduce(T val)
 {
 #pragma unroll
     for (int offset = 16; offset > 0; offset /= 2)
     {
-        val = op(val, __shfl_xor_sync(0xffffffff, val, offset));
+        val += __shfl_xor_sync(0xffffffff, val, offset);
     }
     return val;
 }
 
-template <int BLOCK_SIZE, int ITEMS_PER_THREAD, class T, class ReduceOp>
+template <typename T, typename T_OUT, typename F>
 __global__ void
-cute_reduce_kernel(T *input, T *output, int N, ReduceOp op)
+block_reduce(
+    const uint32_t n_vector_loads,
+    const F fun,
+    const T *__restrict__ input,
+    T_OUT *__restrict__ output,
+    const uint32_t blocks_per_reduction)
 {
-    auto input_tensor = make_tensor(input, make_layout(N));
+    const uint32_t reduction_idx = blockIdx.x / blocks_per_reduction;
+    const uint32_t sub_blocks_idx = blockIdx.x % blocks_per_reduction;
 
-    __shared__ T smem[BLOCK_SIZE];
-    auto smem_tensor = make_tensor(make_smem_ptr(smem), make_layout(BLOCK_SIZE));
+    const uint32_t i = threadIdx.x + sub_blocks_idx * blockDim.x;
+    const uint32_t block_offset = reduction_idx * n_vector_loads;
 
-    int tid = threadIdx.x;
-    int bid = blockIdx.x;
+    static __shared__ T_OUT sdata[32];
 
-    int items_per_block = BLOCK_SIZE * ITEMS_PER_THREAD;
-    int block_offset = bid * items_per_block;
-    int block_end = min(block_offset + items_per_block, N);
+    int lane = threadIdx.x % warpSize;
+	int wid = threadIdx.x / warpSize;
 
-    T thread_sum = op.identity();
+    using T_DECAYED = std::decay_t<T>;
 
-    for (int i = block_offset + tid; i < block_end; i += BLOCK_SIZE)
+    T_OUT val;
+    if (std::is_same<T_DECAYED, float>::value) 
     {
-        thread_sum = op(thread_sum, input_tensor(i));
+        if(i < n_vector_loads)
+        {
+            float4 vals = reinterpret_cast<const float4 *>(input)[i + block_offset];
+            val = fun((T)vals.x) + fun((T)vals.y) + fun((T)vals.z) + fun((T)vals.w);
+        }
+        else
+        {
+            val = 0;
+        }
     }
 
-    smem_tensor(tid) = thread_sum;
+    val = warp_reduce(val);
+
+    if (lane == 0)
+    {
+        sdata[wid] = val;
+    }
+
     __syncthreads();
 
-    for (int stride = BLOCK_SIZE / 2; stride > 32; stride >>= 1)
+    if (wid == 0)
     {
-        if (tid < stride)
+        val = (threadIdx.x < blockDim.x / warpSize) ? sdata[threadIdx.x] : 0;
+        val = warp_reduce(val);
+
+        if(lane == 0)
         {
-            smem_tensor(tid) = op(smem_tensor(tid), smem_tensor(tid + stride));
-        }
-        __syncthreads();
-    }
-
-    if (tid < 32)
-    {
-        if (BLOCK_SIZE >= 64)
-            smem_tensor(tid) = op(smem_tensor(tid), smem_tensor(tid + 32));
-
-        T val = smem_tensor(tid);
-        val = warp_reduce(val, op);
-
-        if (tid == 0)
-        {
-            output[bid] = val;
+            atomicAdd(&output[reduction_idx], val);
         }
     }
 }
 
-template <int BLOCK_SIZE, class T, class ReduceOp>
-__global__ void
-cute_final_reduce_kernel(
-    T *input,
-    T *output,
-    int N,
-    ReduceOp op)
-{
-    auto input_tensor = make_tensor(input, make_layout(N));
-
-    __shared__ T smem[BLOCK_SIZE];
-    auto smem_tensor = make_tensor(make_smem_ptr(smem), make_layout(BLOCK_SIZE));
-
-    int tid = threadIdx.x;
-
-    T thread_sum = op.identity();
-    for (int i = tid; i < N; i += BLOCK_SIZE)
-    {
-        thread_sum = op(thread_sum, input_tensor(i));
-    }
-
-    smem_tensor(tid) = thread_sum;
-    __syncthreads();
-
-    for (int stride = BLOCK_SIZE / 2; stride > 32; stride >>= 1)
-    {
-        if (tid < stride)
-        {
-            smem_tensor(tid) = op(smem_tensor(tid), smem_tensor(tid + stride));
-        }
-        __syncthreads();
-    }
-
-    if (tid < 32)
-    {
-        if (BLOCK_SIZE >= 64)
-            smem_tensor(tid) = op(smem_tensor(tid), smem_tensor(tid + 32));
-
-        T val = smem_tensor(tid);
-        val = warp_reduce(val, op);
-
-        if (tid == 0)
-        {
-            output[0] = val;
-        }
-    }
-}
-
-template <typename T, int BLOCK_SIZE = 256, int ITEMS_PER_THREAD = 4>
+template <typename T, int BLOCK_SIZE = 1024>
 void
-cute_reduce_sum(T *d_input, T *d_output, int size, cudaStream_t stream = 0)
+cute_reduce_sum(T *d_input, T *d_output, int n_elements, cudaStream_t stream = 0)
 {
-    SumOp<T> sum_op;
+    const uint32_t threads = BLOCK_SIZE;
 
-    int items_per_block = BLOCK_SIZE * ITEMS_PER_THREAD;
-    int num_blocks = (size + items_per_block - 1) / items_per_block;
+    const uint32_t N_ELEMS_PER_LOAD = 16 / sizeof(T);
 
-    T *d_temp = nullptr;
-    if (num_blocks > 1)
-    {
-        cudaMalloc(&d_temp, num_blocks * sizeof(T));
-    } else
-    {
-        d_temp = d_output;
-    }
+    assert(n_elements % N_ELEMS_PER_LOAD == 0);
 
-    cute_reduce_kernel<BLOCK_SIZE, ITEMS_PER_THREAD><<<num_blocks, BLOCK_SIZE, 0, stream>>>(
-        d_input, d_temp, size, sum_op);
+    n_elements /= N_ELEMS_PER_LOAD;
 
-    if (num_blocks > 1)
-    {
-        cute_final_reduce_kernel<BLOCK_SIZE><<<1, BLOCK_SIZE, 0, stream>>>(
-            d_temp, d_output, num_blocks, sum_op);
-
-        cudaFree(d_temp);
-    }
+    const uint32_t blocks = (n_elements + threads - 1) / threads;
+    block_reduce<<<blocks, threads, 0, stream>>>(n_elements, [] __device__ (float val) { return val; }, d_input, d_output, blocks);
 }
