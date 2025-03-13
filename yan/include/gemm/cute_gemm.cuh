@@ -284,8 +284,8 @@ gemm_tn(int m, int n, int k,
 
     using SmemLayoutAtomAnB = decltype(composition(
         Swizzle<2, 3, 3>{},
-        make_layout(make_shape(Int<8>{}, Int<bK>{}),
-                    make_stride(Int<bK>{}, Int<1>{}))));
+        make_layout(make_shape(Int<8>{}, Int<32>{}),
+                    make_stride(Int<32>{}, Int<1>{}))));
     auto sA = tile_to_shape(SmemLayoutAtomAnB{},
                             make_shape(Int<bM>{}, Int<bK>{}, Int<bP>{}));
     auto sB = tile_to_shape(SmemLayoutAtomAnB{},
