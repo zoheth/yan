@@ -1,26 +1,26 @@
 import torch
+import torch.nn.functional as F
 from .tuner import jit_tuner
 
-includes = ('"reduce/reduce.cuh"', )
+includes = ('"softmax/softmax.cuh"', )
 template = """
 // Templated args from Python JIT call
-reduce_sum_c(X, y0, N);
-reduce_max_c(X, y1, N);
+softmax_c(X, Y, N);
 """
 
-def reduce_sum_max(x: torch.Tensor, y0: torch.Tensor, y1: torch.Tensor) -> None:
+def softmax(x: torch.Tensor, y: torch.Tensor) -> None:
     N = x.shape[0]
-    assert x.dtype == torch.float32 and y0.dtype == torch.float32 and y1.dtype == torch.float32
+    assert x.dtype == torch.float32 and y.dtype == torch.float32
 
     global includes, template
     
-    args = (x, y0, y1, N)
+    args = (x, y, N)
     runtime = jit_tuner.compile_and_tune(
-        name='reduce sum & max',
+        name='softmax',
         keys={},
         space=(),
         includes=includes,
-        arg_defs=(('X', torch.float), ('y0', torch.float), ('y1', torch.float), ('N', int)),
+        arg_defs=(('X', torch.float), ('Y', torch.float), ('N', int)),
         template=template,
         args=args
     )
@@ -31,18 +31,16 @@ def reduce_sum_max(x: torch.Tensor, y0: torch.Tensor, y1: torch.Tensor) -> None:
 def accuracy_test():
     for _ in range(1):
         torch.manual_seed(42)
-        N = 4096*1024
+        N = 1024
         x = torch.randn(N, dtype=torch.float, device='cuda')
-        y0 = torch.zeros(1, dtype=torch.float, device='cuda')
-        y1 = torch.zeros(1, dtype=torch.float, device='cuda')
+        y = torch.zeros(N, dtype=torch.float, device='cuda')
         
-        reduce_sum_max(x, y0, y1)
+        softmax(x, y)
         
-        print(y0)
-        print(torch.sum(x))
-        
-        print(y1)
         print(torch.max(x))
+        print(y)
+        print(torch.softmax(x, 0))
+        print(F.softmax(x, 0))
         
         # assert torch.allclose(y, y_ref, rtol=0.5, atol=0.1)
         
