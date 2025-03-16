@@ -161,7 +161,7 @@ softmax_f32_kernel(float *x, float *y, float *global_max_sum, int n_vector_loads
 
 template <typename T, const int BLOCK_SIZE = 1024>
 void
-softmax_c(T *d_input, T *d_output, int n_elements, cudaStream_t stream = 0)
+global_softmax_c(T *d_input, T *d_output, int n_elements, cudaStream_t stream = 0)
 {
     const uint32_t threads = BLOCK_SIZE;
 

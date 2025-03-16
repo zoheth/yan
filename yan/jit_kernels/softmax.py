@@ -2,25 +2,26 @@ import torch
 import torch.nn.functional as F
 from .tuner import jit_tuner
 
-includes = ('"softmax/softmax.cuh"', )
+includes = ('"softmax/online_softmax.cuh"', )
 template = """
 // Templated args from Python JIT call
-softmax_c(X, Y, N);
+online_softmax_c(X, Y, B, N);
 """
 
 def softmax(x: torch.Tensor, y: torch.Tensor) -> None:
-    N = x.shape[0]
+    B, N = x.shape[0], x.shape[1]
+    assert x.shape == y.shape
     assert x.dtype == torch.float32 and y.dtype == torch.float32
 
     global includes, template
     
-    args = (x, y, N)
+    args = (x, y, B, N)
     runtime = jit_tuner.compile_and_tune(
         name='softmax',
         keys={},
         space=(),
         includes=includes,
-        arg_defs=(('X', torch.float), ('Y', torch.float), ('N', int)),
+        arg_defs=(('X', torch.float), ('Y', torch.float),('B', int), ('N', int)),
         template=template,
         args=args
     )
@@ -31,18 +32,16 @@ def softmax(x: torch.Tensor, y: torch.Tensor) -> None:
 def accuracy_test():
     for _ in range(1):
         torch.manual_seed(42)
-        N = 1024
-        x = torch.randn(N, dtype=torch.float, device='cuda')
-        y = torch.zeros(N, dtype=torch.float, device='cuda')
+        N = 16384
+        B = 512
+        x = torch.randn(B, N, dtype=torch.float, device='cuda')
+        y = torch.zeros(B, N, dtype=torch.float, device='cuda')
+        
+        y_ref = F.softmax(x, dim=1)
         
         softmax(x, y)
         
-        print(torch.max(x))
-        print(y)
-        print(torch.softmax(x, 0))
-        print(F.softmax(x, 0))
-        
-        # assert torch.allclose(y, y_ref, rtol=0.5, atol=0.1)
+        assert torch.allclose(y, y_ref, rtol=0.0003, atol=0.0001)
         
         print("Test passed!")
 
