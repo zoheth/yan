@@ -9,7 +9,7 @@
 
 using T = half;
 
-// #define CUTE_DEBUG
+#define CUTE_DEBUG
 
 template <class ProblemShape, class CtaTiler,
           class SmemLayoutA, class TiledCopyA_g2s, class TiledCopyA_s2r,
@@ -59,15 +59,15 @@ fp16_gemm_cute(
 #ifdef CUTE_DEBUG
     if (thread0())
     {
-        print("\n\nThrCopy A g2s: ");
-        print(thr_copy_a);
-        print("\ntAgA_g2s: ");
+        // print("\n\nThrCopy A g2s: ");
+        //print(thr_copy_a);
+        print("\n\ntAgA_g2s: ");
         print(tAgA);
         print("\ntAsA_g2s: ");
         print(tAsA);
         print("\n");
-        print("\nThrCopy B g2s: ");
-        print(thr_copy_b);
+        // print("\nThrCopy B g2s: ");
+        // print(thr_copy_b);
         print("\ntBgB_g2s: ");
         print(tBgB);
         print("\ntBsB_g2s: ");
@@ -219,16 +219,16 @@ fp16_gemm_cute(
 #ifdef CUTE_DEBUG
     if (thread0())
     {
-        print("\n\nThrCopy C r2s: ");
-        print(thr_copy_c_r2s);
-        print("\ntCrC_r2s: ");
+        // print("\n\nThrCopy C r2s: ");
+        // print(thr_copy_c_r2s);
+        print("\n\ntCrC_r2s: ");
         print(tCrC_r2s);
         print("\ntCsC_r2s: ");
         print(tCsC_r2s);
 
-        print("\n\nThrCopy C s2g: ");
-        print(thr_copy_c_s2g);
-        print("\ntCsC_s2g: ");
+        // print("\n\nThrCopy C s2g: ");
+        // print(thr_copy_c_s2g);
+        print("\n\ntCsC_s2g: ");
         print(tCsC_s2g);
         print("\ntCgC_s2g: ");
         print(tCgC_s2g);
@@ -283,7 +283,7 @@ gemm_tn(int m, int n, int k,
     auto kCWritebackPipes = Int<4>{};
 
     using SmemLayoutAtomAnB = decltype(composition(
-        Swizzle<2, 3, 3>{},
+        Swizzle<3, 3, 3>{},
         make_layout(make_shape(Int<8>{}, Int<32>{}),
                     make_stride(Int<32>{}, Int<1>{}))));
     auto sA = tile_to_shape(SmemLayoutAtomAnB{},
@@ -330,37 +330,37 @@ gemm_tn(int m, int n, int k,
     static constexpr int kShmSize = shm_size_AB * sizeof(T);
 
 #ifdef CUTE_DEBUG
-    print("\n\nSmemLayoutA: ");
-    print(sA);
-    print("\nSmemLayoutB: ");
-    print(sB);
-    print("\nSmemLayoutC: ");
-    print(sC);
-    print("\n");
-    print("shm_size: %d bytes, shm_size_AB: %d bytes, shm_size_C: %d bytes\n",
-          kShmSize, shm_size_AB * (int)sizeof(T), shm_size_C * (int)sizeof(T));
+    // print("\n\nSmemLayoutA: ");
+    // print(sA);
+    // print("\nSmemLayoutB: ");
+    // print(sB);
+    // print("\nSmemLayoutC: ");
+    // print(sC);
+    // print("\n");
+    // print("shm_size: %d bytes, shm_size_AB: %d bytes, shm_size_C: %d bytes\n",
+    //       kShmSize, shm_size_AB * (int)sizeof(T), shm_size_C * (int)sizeof(T));
 
-    print("\n\nMMA: ");
-    print(tiled_mma);
-    print("\n");
+    // print("\n\nMMA: ");
+    // print(tiled_mma);
+    // print("\n");
 
-    print("\n\ncopyA_g2s: ");
-    print(copyA_g2s);
-    print("\ncopyB_g2s: ");
-    print(copyB_g2s);
-    print("\n");
+    // print("\n\ncopyA_g2s: ");
+    // print(copyA_g2s);
+    // print("\ncopyB_g2s: ");
+    // print(copyB_g2s);
+    // print("\n");
 
-    print("\n\ncopyA_s2r: ");
-    print(copyA_s2r);
-    print("\ncopyB_s2r: ");
-    print(copyB_s2r);
-    print("\n");
+    // print("\n\ncopyA_s2r: ");
+    // print(copyA_s2r);
+    // print("\ncopyB_s2r: ");
+    // print(copyB_s2r);
+    // print("\n");
 
-    print("\ncopyC_r2s: ");
-    print(copyC_r2s);
-    print("\ncopyC_s2g: ");
-    print(copyC_s2g);
-    print("\n");
+    // print("\ncopyC_r2s: ");
+    // print(copyC_r2s);
+    // print("\ncopyC_s2g: ");
+    // print(copyC_s2g);
+    // print("\n");
 
 #endif
 

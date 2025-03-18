@@ -6,7 +6,7 @@ from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-jit_include_dir = ('yan/include/gemm', 'yan/include/scan', 'yan/include/reduce', 'yan/include/softmax')
+jit_include_dir = ('yan/include/gemm', 'yan/include/scan', 'yan/include/reduce', 'yan/include/softmax', 'yan/include/flash_attn')
 third_party_include_dirs = (
     'third-party/cutlass/include/cute',
     'third-party/cutlass/include/cutlass',
@@ -71,12 +71,13 @@ if __name__ == '__main__':
         packages=['yan', 'yan/jit', 'yan/jit_kernels'],
         package_data={
             'yan': [
+                'include/cute/**/*',
+                'include/cutlass/**/*',
                 'include/gemm/**/*',
                 'include/scan/**/*',
                 'include/reduce/**/*',
                 'include/softmax/**/*',
-                'include/cute/**/*',
-                'include/cutlass/**/*',
+                'include/flash_attn/**/*',
             ]
         },
         cmdclass={
