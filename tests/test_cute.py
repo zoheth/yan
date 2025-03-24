@@ -20,7 +20,7 @@ def test_cute_gemm():
     print('Testing CuTe GEMM:')
     
     for m in (256, 4096):
-        for k, n in [(5120, 5120), (1536, 24576), (512, 32768), (16384, 7168), (7168, 4096), (2048, 7168)]:
+        for k, n in [(5120, 5120), (1536, 24576), (512, 32768), (16384, 7168), (7168, 2048), (2048, 7168)]:
             x, y, out, ref_out = construct(m, k, n)
             yan.gemm_fp16_tn(x, y, out)
             diff = calc_diff(out, ref_out)
@@ -40,15 +40,15 @@ def test_cute_gemm():
     print()       
 
 if __name__ == "__main__":
-    # yan.jit_kernels.accuracy_test()
+    yan.jit_kernels.cute_gemm_accuracy_test()
     
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    torch.manual_seed(42)
-    random.seed(42)
+    # torch.backends.cuda.matmul.allow_tf32 = True
+    # torch.backends.cudnn.allow_tf32 = True
+    # torch.manual_seed(42)
+    # random.seed(42)
 
-    print('Library path:')
-    print(f' > {yan.__path__}\n')
+    # print('Library path:')
+    # print(f' > {yan.__path__}\n')
 
-    test_cute_gemm()
+    # test_cute_gemm()
     

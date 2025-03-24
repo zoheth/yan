@@ -9,7 +9,7 @@
 
 using T = half;
 
-#define CUTE_DEBUG
+// #define CUTE_DEBUG
 
 template <class ProblemShape, class CtaTiler,
           class SmemLayoutA, class TiledCopyA_g2s, class TiledCopyA_s2r,
@@ -60,7 +60,7 @@ fp16_gemm_cute(
     if (thread0())
     {
         // print("\n\nThrCopy A g2s: ");
-        //print(thr_copy_a);
+        // print(thr_copy_a);
         print("\n\ntAgA_g2s: ");
         print(tAgA);
         print("\ntAsA_g2s: ");
@@ -291,10 +291,8 @@ gemm_tn(int m, int n, int k,
     auto sB = tile_to_shape(SmemLayoutAtomAnB{},
                             make_shape(Int<bN>{}, Int<bK>{}, Int<bP>{}));
 
-
-    using SmemLayoutAtomC = decltype(
-        make_layout(make_shape(Int<32>{}, Int<32>{}),
-                    make_stride(Int<32>{}, Int<1>{})));
+    using SmemLayoutAtomC = decltype(make_layout(make_shape(Int<32>{}, Int<32>{}),
+                                                 make_stride(Int<32>{}, Int<1>{})));
     auto sC = tile_to_shape(SmemLayoutAtomC{},
                             make_shape(Int<32>{}, Int<32>{}, Int<kCWritebackPipes>{}));
 

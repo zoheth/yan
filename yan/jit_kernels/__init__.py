@@ -5,3 +5,5 @@ from .reduce import reduce_sum_max
 from .softmax import softmax
 from .flash_attn import flash_attn, accuracy_test
 from .utils import get_col_major_tensor
+
+from .cute_gemm import accuracy_test as cute_gemm_accuracy_test

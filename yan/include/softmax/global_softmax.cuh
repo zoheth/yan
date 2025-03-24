@@ -50,13 +50,13 @@ block_reduce_sum(float val)
     int wid = threadIdx.x / warpSize;
 
     val = warp_reduce_sum(val);
-    if(lane == 0)
+    if (lane == 0)
     {
         shared[wid] = val;
     }
     __syncthreads();
-    
-    if(wid == 0)
+
+    if (wid == 0)
     {
         val = (lane < NUM_WARPS) ? shared[lane] : 0.0f;
         val = warp_reduce_sum(val);
@@ -75,13 +75,13 @@ block_reduce_max(float val)
     int wid = threadIdx.x / warpSize;
 
     val = warp_reduce_max(val);
-    if(lane == 0)
+    if (lane == 0)
     {
         shared[wid] = val;
     }
     __syncthreads();
-    
-    if(wid == 0)
+
+    if (wid == 0)
     {
         val = (lane < NUM_WARPS) ? shared[lane] : 0;
         val = warp_reduce_max(val);
@@ -105,8 +105,8 @@ find_max_f32_kernel(float *x, float *global_max_sum, int n_vector_loads)
         val = fmaxf(val, vals.w);
         max_val = block_reduce_max<NUM_THREADS>(val);
     }
-    
-    if(tid == 0)
+
+    if (tid == 0)
     {
         atomicMax(global_max_sum, max_val);
     }
@@ -131,9 +131,9 @@ find_exp_sum_f32_kernel(float *x, float *global_max_sum, int n_vector_loads)
         exp_sum = block_reduce_sum<NUM_THREADS>(exp_sum);
     }
 
-    if(tid == 0)
+    if (tid == 0)
     {
-        atomicAdd(global_max_sum+1, exp_sum);
+        atomicAdd(global_max_sum + 1, exp_sum);
     }
 }
 
@@ -154,10 +154,8 @@ softmax_f32_kernel(float *x, float *y, float *global_max_sum, int n_vector_loads
         vals.z = expf(vals.z - global_max_sum[0]) / global_max_sum[1];
         vals.w = expf(vals.w - global_max_sum[0]) / global_max_sum[1];
         reinterpret_cast<float4 *>(y)[idx] = vals;
-        
     }
 }
-
 
 template <typename T, const int BLOCK_SIZE = 1024>
 void
@@ -174,9 +172,9 @@ global_softmax_c(T *d_input, T *d_output, int n_elements, cudaStream_t stream = 
     uint32_t blocks = (n_elements + threads - 1) / threads;
 
     float *global_max_sum;
-    cudaMalloc(&global_max_sum, sizeof(float)*2);
+    cudaMalloc(&global_max_sum, sizeof(float) * 2);
     float h_max_sum[2] = {0.0f, 0.0f};
-    cudaMemcpy(global_max_sum, h_max_sum, sizeof(float)*2, cudaMemcpyHostToDevice);
+    cudaMemcpy(global_max_sum, h_max_sum, sizeof(float) * 2, cudaMemcpyHostToDevice);
 
     find_max_f32_kernel<BLOCK_SIZE><<<blocks, threads, 0, stream>>>(d_input, global_max_sum, n_elements);
     cudaDeviceSynchronize();

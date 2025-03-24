@@ -4,8 +4,12 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+
 ColumnLimit: 0
-AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: true
 BreakBeforeParameter: Logical
 
 # Add these settings for braces on new line
@@ -19,6 +23,8 @@ BraceWrapping:
   AfterExternBlock: true
 BreakBeforeBraces: Custom
 
-# Force function declaration styles
-AlwaysBreakAfterReturnType: All
-AlwaysBreakAfterDefinitionReturnType: All
+# # Force function declaration styles
+# AlwaysBreakAfterReturnType: All
+# AlwaysBreakAfterDefinitionReturnType: All
+
+

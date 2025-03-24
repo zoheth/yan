@@ -7,203 +7,182 @@
 #include <cute/numeric/math.hpp>
 #include <cute/tensor.hpp>
 
-// #define CUTE_DEBUG
+using namespace cute;
 
-template<int d, class CtaTiler, 
-        class SmemLayoutQ, class SmemLayoutKV,
-        class TiledMma,
-        class TiledCopy_g2s, class TiledCopyQ_s2r, class TiledCopyK_s2r>
-__global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, half *Temp, 
-                                int seq_len, TiledCopy_g2s copy_g2s, TiledCopyQ_s2r copyQ_s2r,
-                                  TiledCopyK_s2r copyK_s2r, TiledMma tiled_mma)
+struct FlashParams
 {
-    using namespace cute;
-    int offset = blockIdx.x * seq_len * d;
-    Tensor mQ = make_tensor(make_gmem_ptr(Q+offset), make_shape(seq_len, d), make_stride(d, _1{}));
-    Tensor mK = make_tensor(make_gmem_ptr(K+offset), make_shape(seq_len, d), make_stride(d, _1{}));
-    Tensor mV = make_tensor(make_gmem_ptr(V+offset), make_shape(seq_len, d), make_stride(d, _1{}));
-    // Tensor mO = make_tensor(make_gmem_ptr(O), make_shape(seq_len, d), make_stride(d, _1{}));
+    using index_t = int64_t;
 
-    int temp_offset = blockIdx.x * seq_len * seq_len;
-    Tensor mTemp = make_tensor(make_gmem_ptr(Temp+temp_offset), make_shape(seq_len, seq_len), make_stride(seq_len, _1{}));
+    void *__restrict__ q_ptr;
+    void *__restrict__ k_ptr;
+    void *__restrict__ v_ptr;
+    void *__restrict__ o_ptr;
 
-    Tensor gQ = local_tile(mQ, select<0, 2>(cta_tiler), make_coord(_, 0)); // (Br, d, j)
-    Tensor gK = local_tile(mK, select<1, 2>(cta_tiler), make_coord(_, 0)); // (Bc, d, i)
-    Tensor gV = local_tile(mV, select<1, 2>(cta_tiler), make_coord(_, 0)); // (Bc, d, i)
-    // Tensor gO = local_tile(mO, select<0, 2>(cta_tiler), make_coord(_, 0)); // (Br, d, j)
+    index_t q_row_stride;
+    index_t k_row_stride;
+    index_t v_row_stride;
+    index_t q_head_stride;
+    index_t k_head_stride;
+    index_t v_head_stride;
 
-#ifdef CUTE_DEBUG
-    if(thread0())
-    {
-        print("\n\ngQ: ");
-        print(gQ); 
-        print("\ngK: ");
-        print(gK);
-    }
-#endif
-    static_assert(is_static<SmemLayoutQ>::value);
-    static_assert(is_static<SmemLayoutKV>::value);
+    int batch_size;
+    int seq_len;
+    int num_heads;
 
-    __shared__ half smemQ[cosize_v<SmemLayoutQ>];
-    __shared__ half smemK[cosize_v<SmemLayoutKV>];
-    Tensor sQ = make_tensor(make_smem_ptr(smemQ), SmemLayoutQ{});
-    Tensor sK = make_tensor(make_smem_ptr(smemK), SmemLayoutKV{});
+    void *__restrict__ p_ptr;
+};
 
-    ThrCopy thr_copy_q = copy_g2s.get_slice(threadIdx.x);
-    Tensor tQgQ = thr_copy_q.partition_S(gQ); // 
-    Tensor tQsQ = thr_copy_q.partition_D(sQ);
-
-#ifdef CUTE_DEBUG
-    if(thread0())
-    {
-        print("\n\ntQgQ: ");
-        print(tQgQ);
-        print("\ntQsQ: ");
-        print(tQsQ);
-    }
-#endif
-
-    ThrCopy thr_copy_k = copy_g2s.get_slice(threadIdx.x);
-    Tensor tKgK = thr_copy_k.partition_S(gK);
-    Tensor tKsK = thr_copy_k.partition_D(sK);
-
-#ifdef CUTE_DEBUG
-    if(thread0())
-    {
-        print("\n\ntKgK: ");
-        print(tKgK);
-        print("\ntKsK: ");
-        print(tKsK);
-    }
-#endif
-    ThrMMA thr_mma = tiled_mma.get_slice(threadIdx.x);
-
-    Tensor tCrQ = thr_mma.partition_fragment_A(gQ(_,_,0));
-    Tensor tCrK = thr_mma.partition_fragment_B(gK(_,_,0));
-
-    ThrCopy thr_copy_q_s2r = copyQ_s2r.get_slice(threadIdx.x);
-    Tensor tCsQ = thr_copy_q_s2r.partition_S(sQ);
-    Tensor tCrQ_view = thr_copy_q_s2r.retile_D(tCrQ);
-    
-    ThrCopy thr_copy_k_s2r = copyK_s2r.get_slice(threadIdx.x);
-    Tensor tCsK = thr_copy_k_s2r.partition_S(sK);
-    Tensor tCrK_view = thr_copy_k_s2r.retile_D(tCrK);
-    auto K_BLOCK_MAX = size<2>(tCrQ);
-
-#ifdef CUTE_DEBUG
-    if(thread0())
-    {
-        print("\n\ntCsQ: ");
-        print(tCsQ);
-        print("\ntCsK: ");
-        print(tCsK);
-
-        print("\n\ntCrQ: ");
-        print(tCrQ);
-        print("\ntCrK: ");
-        print(tCrK);
-    }
-#endif
-
-    if(thread0())
-    {
-        Tensor gTemp = local_tile(mTemp, select<0, 1>(cta_tiler), make_coord(0, 0));
-        Tensor tCgO = thr_mma.partition_C(gTemp);
-        Tensor tCrO = thr_mma.make_fragment_C(tCgO);
-
-        print("\n\ngTemp: ");
-        print(gTemp);
-        print("\n");
-
-        print("\n\ntCgO: ");
-        print(tCgO);
-        print("\n\ntCrO: ");
-        print(tCrO);
-        print("\n");
-    }
-
-    for (int i = 0; i < size<2>(gK); i++) {
-        copy(copy_g2s, tKgK(_, _,_, i), tKsK(_, _,_, 0));
-        cp_async_fence();
-        cp_async_wait<0>();
-
-        for(int j = 0; j < size<2>(gQ); j++) {
-
-            Tensor gTemp = local_tile(mTemp, select<0, 1>(cta_tiler), make_coord(j, i)); // (Br, Bc)
-            Tensor tCgO = thr_mma.partition_C(gTemp);
-            Tensor tCrO = thr_mma.make_fragment_C(tCgO);
-
-            clear(tCrO);
-
-            copy(copy_g2s, tQgQ(_, _,_, j), tQsQ(_, _,_, 0));
-            cp_async_fence();
-            cp_async_wait<0>();
-
-            __syncthreads();
-
-            for(int k = 0; k < K_BLOCK_MAX; k++) {
-                copy(copyQ_s2r, tCsQ(_, _, k, 0), tCrQ_view(_,_,k));
-                copy(copyK_s2r, tCsK(_, _, k, 0), tCrK_view(_,_,k));
-
-                gemm(tiled_mma, tCrO, tCrQ(_,_,k), tCrK(_,_,k), tCrO);
-            }
-            
-            for(int idx = 0 ; idx < size(tCrO); idx++) {
-                tCgO(idx) = tCrO(idx);
-            }
-            __syncthreads();
-        }
-
-    }
-}
-
-template<int d>
-void flash_attn_func(half *query, half *key, half *value, half *temp, int batch_size, int num_heads, int seq_len, cudaStream_t stream)
+template <int kHeadDim_, int kBlockM_, int kBlockN_,
+          int kNumWarps_, bool kIsQInRegs_ = false, typename ElementType_ = cutlass::half_t>
+struct FlashTraits
 {
-    // key: [batch_size, num_heads, seq_len, d]
-    // value: [batch_size, num_heads, seq_len, d]
-    // query: [batch_size, num_heads, seq_len, d]
-    // output: [batch_size, num_heads, seq_len, d]
-    // temp: [batch_size, num_heads, seq_len, seq_len]
-    using namespace cute;
+    using ElementType  = ElementType_;
+    using ElementAccum = float;
 
-    auto prob_shape = make_shape(batch_size, num_heads, seq_len, d);
+    static constexpr int kHeadDim  = kHeadDim_;
+    static constexpr int kBlockM   = kBlockM_;
+    static constexpr int kBlockN   = kBlockN_;
+    static constexpr int kNumWarps = kNumWarps_;
 
-    auto Br = Int<64>{};
-    auto Bc = Int<64>{};
-    auto kHeadDim = Int<d>{};
+    using MmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>;
 
-    auto kInnerStage = Int<1>{};
-    auto kOuterStage = Int<1>{};
+    static constexpr int kNumThreads = kNumWarps * 32;
 
-    auto cta_tiler = make_shape(Br, Bc, kHeadDim);
+    static_assert(kHeadDim % 32 == 0, "head维度必须是32的倍数");
+    static constexpr int kBlockKSmem = kHeadDim % 64 == 0 ? 64 : 32;
+    static constexpr int kBlockKGmem = kHeadDim % 128 == 0 ? 128 : (kHeadDim % 64 == 0 ? 64 : 32);
+    static constexpr int kSwizzle    = kBlockKSmem == 32 ? 2 : 3;
 
-    using SmemLayoutAtom = decltype(
-        make_layout(make_shape(Int<32>{}, Int<32>{}),
-                    make_stride(Int<32>{}, Int<1>{})));
+    using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
+                              Layout<Shape<Int<kNumWarps>{}, _1, _1>>,
+                              Tile<Int<16 * kNumWarps>, _16, _8>>;
+
+    using SmemLayoutAtomQ = decltype(composition(Swizzle<kSwizzle, 3, 3>{},
+                                                 Layout<Shape<_8, Int<kBlockKSmem>>,
+                                                        Stride<Int<kBlockKSmem>, _1>>{}));
+
+    using SmemLayoutQ = decltype(tile_to_shape(
+        SmemLayoutAtomQ{},
+        Shape<Int<kBlockM>, Int<kHeadDim>>{}));
+
+    using SmemLayoutKV = decltype(tile_to_shape(
+        SmemLayoutAtomQ{},
+        Shape<Int<kBlockN>, Int<kHeadDim>>{}));
+
+    using SmemLayoutV_Transposed = decltype(composition(
+        SmemLayoutKV{}, make_layout(Shape<Int<kHeadDim>, Int<kBlockN>>{}, GenRowMajor{})));
+
+    using SmemLayoutV_Transposed_NoSwizzle = decltype(get_nonswizzle_portion(SmemLayoutV_Transposed{}));
+
+    using SmemLayoutAtomO = decltype(composition(Swizzle<kSwizzle, 3, 3>{},
+                                                 Layout<Shape<Int<8>, Int<kBlockKSmem>>,
+                                                        Stride<Int<kBlockKSmem>, _1>>{}));
+
+    using SmemLayoutO         = decltype(tile_to_shape(
+        SmemLayoutAtomO{},
+        Shape<Int<kBlockM>, Int<kHeadDim>>{}));
+    using SmemCopyAtomO       = Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, ElementType>;
+    using SmemCopyAtomO_Accum = Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, float>;
+
+    static constexpr int kSmemQSize  = size(SmemLayoutQ{}) * sizeof(ElementType);
+    static constexpr int kSmemKVSize = size(SmemLayoutKV{}) * 2 * sizeof(ElementType);
+    static constexpr int kSmemSize   = kSmemQSize + kSmemKVSize;
+
+    static constexpr int kGmemElemsPerLoad = sizeof(uint128_t) / sizeof(ElementType);
+    static_assert(kHeadDim % kGmemElemsPerLoad == 0, "kHeadDim must be divisible by kGmemElemsPerLoad");
+
+    static constexpr int kGmemThreadsPerRow = kBlockKSmem / kGmemElemsPerLoad;
+    static_assert(kNumThreads % kGmemThreadPerRow == 0, "kNumThreads must be divisible by kGmemThreadPerRow");
+    using GmemLayoutAtom = Layout<Shape<Int<kNumThreads / kGmemThreadsPerRow>, Int<kGmemThreadsPerRow>>,
+                                  Stride<Int<kGmemThreadsPerRow>, _1>>;
+
+    using GmemTiledCopyQKV = decltype(make_tiled_copy(
+        Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<uint128_t>, ElementType>{},
+        GmemLayoutAtom{},
+        Layout<Shape<_1, _8>>()));
+
+    using GmemTiledCopyO = decltype(make_tiled_copy(
+        Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, ElementType>{},
+        GmemLayoutAtom{},
+        Layout<Shape<_1, _8>>()));
+};
+
+template <int kHeadDim, int kBlockM, int kBlockN, int kNumWarps>
+inline __device__ void compute_attn_1rowblock(const FlashParams &params)
+{
+    using Traits  = FlashTraits<kHeadDim, kBlockM, kBlockN, kNumWarps>;
+    using Element = typename Traits::ElementType;
+
+    extern __shared__ char smem_bytes[];
+
+    const int tid = threadIdx.x;
+
+    const int row_block_idx = blockIdx.x;
+    const int batch_idx     = blockIdx.y;
+    const int head_idx      = blockIdx.z;
+
+    int n_block_max = ceil_div(params.seq_len, kBlockN);
+
+    const int64_t qkv_stride = params.num_heads * params.seq_len * kHeadDim;
+
+    Tensor mQ = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.q_ptr) + batch_idx * qkv_stride),
+                            make_shape(params.seq_len, params.num_heads, kHeadDim),
+                            make_stride(params.q_row_stride, params.q_head_stride, 1));
+    Tensor mK = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.k_ptr) + batch_idx * qkv_stride),
+                            make_shape(params.seq_len, params.num_heads, kHeadDim),
+                            make_stride(params.k_row_stride, params.k_head_stride, 1));
+    Tensor mV = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.v_ptr) + batch_idx * qkv_stride),
+                            make_shape(params.seq_len, params.num_heads, kHeadDim),
+                            make_stride(params.v_row_stride, params.v_head_stride, 1));
+
+    Tensor gQ = local_tile(mQ(_, head_idx, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+                           make_coord(row_block_idx, 0)); // (kBlockM, kHeadDim)
+
+    Tensor gK = local_tile(mK(_, head_idx, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
+                           make_coord(_, 0)); // (kBlockN, kHeadDim, numBlocksN)
+    Tensor gV = local_tile(mV(_, head_idx, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
+                           make_coord(_, 0)); // (kBlockN, kHeadDim, numBlocksN)
+
+    const int64_t row_offset_p = (batch_idx * params.num_heads + head_idx) * params.seq_len + row_block_idx * kBlockM;
+    row_offset_p               = row_offset_p * params.seq_len + (n_block_max - 1) * kBlockN;
+
+    Tensor gP = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.p_ptr) + row_offset_p),
+                            Shape<Int<kBlockM>, Int<kBlockN>>{},
+                            make_stride(params.seq_len, 1));
+
+    Tensor sQ = make_tensor(make_smem_ptr(reinterpret_cast<Element *>(smem_bytes)),
+                            typename Traits::SmemLayoutQ{});
+    Tensor sK = make_tensor(sQ.data() + size(sQ),
+                            typename Traits::SmemLayoutKV{});
+    Tensor sV = make_tensor(sK.data() + size(sK),
+                            typename Traits::SmemLayoutKV{});
+
+    Tensor sV_transposed            = make_tensor(sV.data(),
+                                                  typename Traits::SmemLayoutV_Transposed{});
+    Tensor sV_transposed_no_swizzle = make_tensor(sV.data().get(),
+                                                  typename Traits::SmemLayoutV_Transposed_NoSwizzle{});
+
+    typename Traits::GmemTiledCopyQKV copy_qkv_g2s;
+    ThrCopy                           thr_copy_qkv_g2s = copy_qkv_g2s.get_thread_slice(tid);
+
+    Tensor tQgQ = thr_copy_qkv_g2s.partition_S(gQ);
+    Tensor tQsQ = thr_copy_qkv_g2s.partition_D(sQ);
+    Tensor tKgK = thr_copy_qkv_g2s.partition_S(gK);
+    Tensor tKsK = thr_copy_qkv_g2s.partition_D(sK);
+    Tensor tVgV = thr_copy_qkv_g2s.partition_S(gV);
+    Tensor tVsV = thr_copy_qkv_g2s.partition_D(sV);
+
+    typename Traits::TiledMma tiled_mma;
+
+    auto   thr_mma = tiled_mma.get_thread_slice(tid);
+    Tensor tSrQ    = thr_mma.partition_fragment_A(sQ);
+    Tensor tSrK    = thr_mma.partition_fragment_B(sK);
+    Tensor tOrVt   = thr_mma.partition_fragment_C(sV_transposed_no_swizzle);
+
+    Tensor tSgS = thr_mma.partition_c(gP);
+
     
-    auto sQ = tile_to_shape(SmemLayoutAtom{}, make_shape(Br, kHeadDim, kInnerStage));
-    auto sK = tile_to_shape(SmemLayoutAtom{}, make_shape(Bc, kHeadDim, kOuterStage));
-    auto sV = tile_to_shape(SmemLayoutAtom{}, make_shape(Bc, kHeadDim, kOuterStage));
 
-    TiledMMA tiled_mma = make_tiled_mma(SM80_16x8x16_F16F16F16F16_TN{},
-                                        Layout<Shape<_2, _2, _1>>{},
-                                        Tile<_32, _32, _16>{});
-    TiledCopy copyQ_g2s = make_tiled_copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<uint128_t>, half>{},
-                                          Layout<Shape<_32, _4>, Stride<_4, _1>>{}, // Thr layout
-                                          Layout<Shape<_1, _8>>{});                 // Val layout
-    TiledCopy copyK_g2s = copyQ_g2s;
-    TiledCopy copyV_g2s = copyQ_g2s;
+    Tensor acc_o = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kHeadDim>>{})
 
-    TiledCopy copyQ_s2r = make_tiled_copy_A(Copy_Atom<SM75_U32x4_LDSM_N, half>{}, tiled_mma);
-    TiledCopy copyK_s2r = make_tiled_copy_B(Copy_Atom<SM75_U32x4_LDSM_N, half>{}, tiled_mma);
-    TiledCopy copyV_s2r = make_tiled_copy_B(Copy_Atom<SM75_U32x4_LDSM_N, half>{}, tiled_mma);
-
-    dim3 dimBlock(size(tiled_mma));
-    dim3 dimGrid(batch_size * num_heads);
-
-    flash_attn_cute<d, decltype(cta_tiler), decltype(sQ), decltype(sK), decltype(tiled_mma), 
-                    decltype(copyQ_g2s), decltype(copyQ_s2r), decltype(copyK_s2r)>
-        <<<dimGrid, dimBlock, 0, stream>>>(cta_tiler, query, key, value, temp, seq_len, copyQ_g2s, copyQ_s2r, copyK_s2r, tiled_mma);                                   
-                                      
 }
