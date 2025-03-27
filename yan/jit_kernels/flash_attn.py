@@ -3,7 +3,7 @@ from typing import Tuple
 
 from .tuner import jit_tuner
 
-includes = ('"flash_attn/flash_attn.cuh"', )
+includes = ('"flash_attn/flash_attn_naive.cuh"', )
 template = """
 // Templated args from Python JIT call
 constexpr auto d = {D};
@@ -49,11 +49,11 @@ def accuracy_test():
         Q = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         K = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         V = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
-        Output = torch.zeros(32, 96, 1024, 128, device='cuda', dtype=torch.half)
+        Output = torch.zeros(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         # Temp = torch.zeros(32, 64, 1024, 1024, device='cuda', dtype=torch.half)
         flash_attn(Q, K, V, Output)
         
-        print(Output[15, 53])
+        print(Output)
 
     # expected_temp = torch.zeros_like(Temp)
     # for b in range(32):
