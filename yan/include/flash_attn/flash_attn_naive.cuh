@@ -7,7 +7,24 @@
 #include <cute/numeric/math.hpp>
 #include <cute/tensor.hpp>
 
+#include <cutlass/array.h>
+#include <cutlass/cutlass.h>
+#include <cutlass/numeric_conversion.h>
+#include <cutlass/numeric_types.h>
+
 // #define CUTE_DEBUG
+using namespace cute;
+
+template <typename To_type, typename Engine, typename Layout>
+__forceinline__ __device__ auto convert_type(Tensor<Engine, Layout> const &tensor)
+{
+    using From_type                                                 = typename Engine::value_type;
+    constexpr int                                             numel = decltype(size(tensor))::value;
+    cutlass::NumericArrayConverter<To_type, From_type, numel> convert_op;
+    // HACK: this requires tensor to be "contiguous"
+    auto frag = convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel> *>(tensor.data()));
+    return make_tensor(make_rmem_ptr<To_type>(&frag), tensor.layout());
+}
 
 template <class Layout>
 __forceinline__ __device__ auto convert_layout_acc_Aregs(Layout layout)
@@ -17,13 +34,16 @@ __forceinline__ __device__ auto convert_layout_acc_Aregs(Layout layout)
     return make_layout(make_layout(get<0>(l), get<2, 0>(l)), get<1>(l), get<2, 1>(l));
 }
 
-template <int d, class CtaTiler,
-          class SmemLayoutQ, class SmemLayoutKV, class SmemLayoutVtransposed,
-          class TiledMma,
-          class TiledCopy_g2s, class TiledCopyQ_s2r, class TiledCopyK_s2r, class TiledCopyVT_s2r>
+template <int d, typename CtaTiler,
+          typename SmemLayoutQ, typename SmemLayoutKV, typename SmemLayoutVtransposed,
+          typename TiledMma,
+          typename TiledCopy_g2s, typename TiledCopyQ_s2r,
+          typename TiledCopyK_s2r, typename TiledCopyVT_s2r,
+          typename TiledCopyO_r2s, typename TiledCopyO_s2g>
 __global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, half *O,
                                 int seq_len, TiledCopy_g2s copy_g2s, TiledCopyQ_s2r copyQ_s2r,
                                 TiledCopyK_s2r copyK_s2r, TiledCopyVT_s2r copyVT_s2r,
+                                TiledCopyO_r2s copyO_r2s, TiledCopyO_s2g copyO_s2g,
                                 TiledMma tiled_mma)
 {
     using namespace cute;
@@ -37,6 +57,7 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, h
     Tensor gQ = local_tile(mQ, select<0, 2>(cta_tiler), make_coord(_, 0)); // (Br, d, j)
     Tensor gK = local_tile(mK, select<1, 2>(cta_tiler), make_coord(_, 0)); // (Bc, d, i)
     Tensor gV = local_tile(mV, select<1, 2>(cta_tiler), make_coord(_, 0)); // (Bc, d, i)
+    Tensor gO = local_tile(mO, select<0, 2>(cta_tiler), make_coord(_, 0)); // (Br, d, j)
 
 #ifdef CUTE_DEBUG
     if (thread0())
@@ -131,8 +152,6 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, h
         cp_async_fence();
         cp_async_wait<0>();
 
-        Tensor acc_o = partition_fragment_C(tiled_mma, select<0, 2>(cta_tiler));
-        clear(acc_o);
         for (int j = 0; j < size<2>(gQ); j++)
         {
             // Tensor rP = make_tensor<half>(select<0, 1>(cta_tiler));
@@ -170,11 +189,11 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, h
 
             __syncthreads();
 
-            Tensor tOrP = make_tensor(tPrP.data(), convert_layout_acc_Aregs(tPrP.layout()));
-            // Tensor tPrP = make_tensor<half>(partition_shape_A(tiled_mma, select<0, 1>(cta_tiler)));
-            // Tensor tPrP = thr_mma.partition_fragment_A(rP);
-            // copy(tOrP, tPrP);
-            // clear(tOrO);
+            Tensor rP   = convert_type<half>(tPrP);
+            Tensor tOrP = make_tensor(rP.data(), convert_layout_acc_Aregs(rP.layout()));
+
+            Tensor acc_o = partition_fragment_C(tiled_mma, select<0, 2>(cta_tiler));
+            clear(acc_o);
 
             if (i == 0 && j == 0 && thread0())
             {
@@ -202,24 +221,41 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, half *Q, half *K, half *V, h
             }
 
             __syncthreads();
-        }
-        Tensor gO   = local_tile(mO, select<0, 2>(cta_tiler), make_coord(i, 0));
-        Tensor tOgO = thr_mma.partition_C(gO);
 
-        if(thread0()&&i==0)
-        {
-            print("\n\nacc_o: ");
-            print(acc_o);
-            print("\n\ntOgO: ");
-            print(tOgO);
-            print("\n\n");
-            tOgO(0) = 106;
-        }
+            Tensor rO = convert_type<half>(acc_o);
 
-        for(int idx = 0; idx < size(acc_o); idx++)
-        {
-            //tOgO(idx) =  __hadd(tOgO(idx), tOrO(idx));
-            // tOgO(idx) = acc_o(idx);
+            Tensor  sO             = make_tensor(sQ(_, _, 0).data(), sQ(_, _, 0).layout());
+            ThrCopy thr_copy_o_r2s = copyO_r2s.get_slice(threadIdx.x);
+            Tensor  tOrO_r2s       = thr_copy_o_r2s.retile_S(rO);
+            Tensor  tOsO_r2s       = thr_copy_o_r2s.partition_D(sO);
+            if (thread0() && i == 0 && j == 0)
+            {
+                print("\n\ntOrO_r2s: ");
+                print(tOrO_r2s);
+                print("\n\ntOsO_r2s: ");
+                print(tOsO_r2s);
+                print("\n\n");
+            }
+            copy(copyO_r2s, tOrO_r2s, tOsO_r2s);
+
+            __syncthreads();
+
+            ThrCopy thr_copy_o_s2g = copyO_s2g.get_slice(threadIdx.x);
+            Tensor  tOsO_s2g       = thr_copy_o_s2g.partition_S(sO);
+            Tensor  tOgO_view      = thr_copy_o_s2g.partition_D(gO(_, _, j));
+
+            if (thread0() && i == 0 && j == 0)
+            {
+                print("\n\ntOsO_s2g: ");
+                print(tOsO_s2g);
+                print("\n\ntOgO_view: ");
+                print(tOgO_view);
+                print("\n\n");
+            }
+
+            copy(copyO_s2g, tOsO_s2g, tOgO_view);
+
+            __syncthreads();
         }
     }
 }
@@ -240,7 +276,7 @@ void flash_attn_func(half *query, half *key, half *value, half *output, int batc
     auto Bc       = Int<64>{};
     auto kHeadDim = Int<d>{};
 
-    constexpr int kBlockHeadDim = 64;
+    constexpr int kBlockHeadDim = 32;
     static_assert(d % kBlockHeadDim == 0);
 
     auto kInnerStage = Int<1>{};
@@ -256,11 +292,11 @@ void flash_attn_func(half *query, half *key, half *value, half *output, int batc
     auto sV           = tile_to_shape(SmemLayoutAtom{}, make_shape(Bc, kHeadDim, kOuterStage));
     auto sVtransposed = tile_to_shape(SmemLayoutAtom{}, make_shape(kHeadDim, Bc, kOuterStage));
 
-    TiledMMA  tiled_mma = make_tiled_mma(SM80_16x8x16_F16F16F16F16_TN{},
+    TiledMMA  tiled_mma = make_tiled_mma(SM80_16x8x16_F32F16F16F32_TN{},
                                          Layout<Shape<_4, _1, _1>>{},
                                          Tile<_64, _16, _16>{});
     TiledCopy copyQ_g2s = make_tiled_copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<uint128_t>, half>{},
-                                          Layout<Shape<_16, _8>, Stride<_8, _1>>{}, // Thr layout
+                                          Layout<Shape<_32, _4>, Stride<_4, _1>>{}, // Thr layout
                                           Layout<Shape<_1, _8>>{});                 // Val layout
     TiledCopy copyK_g2s = copyQ_g2s;
     TiledCopy copyV_g2s = copyQ_g2s;
@@ -269,6 +305,11 @@ void flash_attn_func(half *query, half *key, half *value, half *output, int batc
     TiledCopy copyK_s2r  = make_tiled_copy_B(Copy_Atom<SM75_U32x4_LDSM_N, half>{}, tiled_mma);
     TiledCopy copyVT_s2r = make_tiled_copy_B(Copy_Atom<SM75_U32x4_LDSM_N, half>{}, tiled_mma);
 
+    TiledCopy copyO_r2s = make_tiled_copy_C(Copy_Atom<UniversalCopy<int>, half>{}, tiled_mma);
+    TiledCopy copyO_s2g = make_tiled_copy(Copy_Atom<UniversalCopy<int>, half>{},
+                                          Layout<Shape<_32, _4>, Stride<_4, _1>>{}, // Thr layout
+                                          Layout<Shape<_1, _8>>{});                 // Val layout
+
     dim3 dimBlock(size(tiled_mma));
     dim3 dimGrid(batch_size * num_heads);
 
@@ -276,6 +317,12 @@ void flash_attn_func(half *query, half *key, half *value, half *output, int batc
                     decltype(sQ), decltype(sK), decltype(sVtransposed),
                     decltype(tiled_mma),
                     decltype(copyQ_g2s), decltype(copyQ_s2r),
-                    decltype(copyK_s2r)>
-        <<<dimGrid, dimBlock, 0, stream>>>(cta_tiler, query, key, value, output, seq_len, copyQ_g2s, copyQ_s2r, copyK_s2r, copyVT_s2r, tiled_mma);
+                    decltype(copyK_s2r), decltype(copyVT_s2r),
+                    decltype(copyO_r2s), decltype(copyO_s2g)>
+        <<<dimGrid, dimBlock, 0, stream>>>(cta_tiler, query, key, value, output,
+                                           seq_len,
+                                           copyQ_g2s, copyQ_s2r,
+                                           copyK_s2r, copyVT_s2r,
+                                           copyO_r2s, copyO_s2g,
+                                           tiled_mma);
 }

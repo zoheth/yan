@@ -48,37 +48,41 @@ def accuracy_test():
         torch.manual_seed(42)
         Q = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         K = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
-        V = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
+        V = torch.ones(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         Output = torch.zeros(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         # Temp = torch.zeros(32, 64, 1024, 1024, device='cuda', dtype=torch.half)
         flash_attn(Q, K, V, Output)
         
-        print(Output)
-
-    # expected_temp = torch.zeros_like(Temp)
-    # for b in range(32):
-    #     for h in range(64):
-    #         expected_temp[b, h] = torch.matmul(Q[b, h], K[b, h].transpose(0, 1))
-            
-    # print(Temp[15, 53])
-    # print(expected_temp[15, 53])
-    
-    # diff = torch.abs(Temp - expected_temp)
-    # max_diff = diff.max()
-    # mean_diff = diff.mean()
-
-
-    # max_indices = (diff == max_diff).nonzero()[0].tolist()
-    # b, h, r, c = max_indices
-
-    # diff_flat = diff.flatten()
-    # values, indices = diff_flat.topk(2)
-    # second_max_indices = torch.unravel_index(indices[1], diff.shape)
-    # b2, h2, r2, c2 = [i.item() for i in second_max_indices]
-
-    # print(f"Mean diff: {mean_diff:.6f}, Max diff: {max_diff:.6f}")
-    # print(f"Max diff at [{b},{h},{r},{c}]: {Temp[b,h,r,c]:.6f} vs {expected_temp[b,h,r,c]:.6f}")
-    # print(f"Second max diff at [{b2},{h2},{r2},{c2}]: {Temp[b2,h2,r2,c2]:.6f} vs {expected_temp[b2,h2,r2,c2]:.6f}")
-
-    # tolerance = 0.2
-    # print("Verification", "PASSED" if max_diff < tolerance else "FAILED")
+        # Calculate expected output: (Q * K^T) * V without softmax
+        expected_output = torch.zeros_like(Output)
+        for b in range(32):
+            for h in range(64):
+                temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1))
+                expected_output[b, h] = torch.matmul(temp, V[b, h])
+                
+        # Calculate difference statistics
+        diff = torch.abs(Output - expected_output)
+        max_diff = diff.max()
+        mean_diff = diff.mean()
+        
+        # Find max diff location (safely)
+        max_indices = (diff == max_diff).nonzero()
+        b, h, r, c = max_indices[0].tolist() if max_indices.numel() > 0 else (0, 0, 0, 0)
+        
+        # Find second largest diff (safely)
+        diff_flat = diff.flatten()
+        k = min(2, diff_flat.numel())
+        values, indices = diff_flat.topk(k)
+        second_idx = indices[min(1, k-1)]
+        b2, h2, r2, c2 = [i.item() for i in torch.unravel_index(second_idx, diff.shape)]
+        
+        # Print key results
+        print(f"Sample outputs at [15,53,100,:10]:")
+        print(f"Actual: {Output[15,53,100,:10]}")
+        print(f"Expected: {expected_output[15,53,100,:10]}")
+        print(f"Mean diff: {mean_diff:.6f}, Max diff: {max_diff:.6f}")
+        print(f"Max diff at [{b},{h},{r},{c}]: {Output[b,h,r,c]:.6f} vs {expected_output[b,h,r,c]:.6f}")
+        print(f"2nd max diff at [{b2},{h2},{r2},{c2}]: {Output[b2,h2,r2,c2]:.6f} vs {expected_output[b2,h2,r2,c2]:.6f}")
+        print(f"Verification: {'PASSED' if max_diff < 0.2 else 'FAILED'}")
+        
+        print(Output[0,0,0,:10])
