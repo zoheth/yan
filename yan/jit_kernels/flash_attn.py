@@ -48,7 +48,7 @@ def accuracy_test():
         torch.manual_seed(42)
         Q = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         K = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
-        V = torch.ones(32, 64, 1024, 128, device='cuda', dtype=torch.half)
+        V = torch.randn(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         Output = torch.zeros(32, 64, 1024, 128, device='cuda', dtype=torch.half)
         # Temp = torch.zeros(32, 64, 1024, 1024, device='cuda', dtype=torch.half)
         flash_attn(Q, K, V, Output)
