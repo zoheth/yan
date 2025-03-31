@@ -12,6 +12,8 @@
 #include <cutlass/numeric_conversion.h>
 #include <cutlass/numeric_types.h>
 
+#include "softmax.cuh"
+
 #define CUTE_DEBUG
 
 using namespace cute;
@@ -105,28 +107,33 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, Element *Q, Element *K, Elem
     Tensor  tOrVt           = thr_mma.partition_fragment_B(sVtNoSwizzle);
     Tensor  tOrVt_view      = thr_copy_vt_s2r.retile_D(tOrVt);
 
-    auto K_BLOCK_MAX = size<2>(tPrQ);
+    auto  K_BLOCK_MAX = size<2>(tPrQ);
+    float scale_log2  = M_LOG2E;
+
+    // Tensor accum_o = partition_fragment_C(tiled_mma, select<0, 2>(cta_tiler));
+    // Tensor lse = make_fragment_like(Shape<Int<2 * size<1>(accum_o)>>{});
 
     for (int i = 0; i < size<2>(gQ); i++)
     {
         copy(copy_g2s, tQgQ(_, _, _, i), tQsQ(_, _, _));
         cp_async_fence();
         cp_async_wait<0>();
+        Tensor accum_o = partition_fragment_C(tiled_mma, select<0, 2>(cta_tiler));
+        clear(accum_o);
 
-        Tensor acc_o = partition_fragment_C(tiled_mma, select<0, 2>(cta_tiler));
-        clear(acc_o);
+        Softmax<2 * size<1>(accum_o)> softmax_op;
 
         for (int j = 0; j < size<2>(gK); j++)
         {
-            Tensor tPrP = partition_fragment_C(tiled_mma, select<0, 1>(cta_tiler));
+            Tensor accum_s = partition_fragment_C(tiled_mma, select<0, 1>(cta_tiler));
 
-            if(thread0() && i == 0 && j == 0)
+            if (thread0() && i == 0 && j == 0)
             {
-                print(tPrP);
+                print(accum_s);
                 print("\n\n");
             }
 
-            clear(tPrP);
+            clear(accum_s);
 
             copy(copy_g2s, tKgK(_, _, _, j), tKsK(_, _, _));
             copy(copy_g2s, tVgV(_, _, _, j), tVsV(_, _, _));
@@ -140,22 +147,34 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, Element *Q, Element *K, Elem
                 copy(copyQ_s2r, tPsQ(_, _, k), tPrQ_view(_, _, k));
                 copy(copyK_s2r, tPsK(_, _, k), tPrK_view(_, _, k));
 
-                gemm(tiled_mma, tPrP, tPrQ(_, _, k), tPrK(_, _, k), tPrP);
+                gemm(tiled_mma, accum_s, tPrQ(_, _, k), tPrK(_, _, k), accum_s);
             }
 
-            Tensor rP   = convert_type<Element>(tPrP);
+            __syncthreads();
+            // if (j == 0)
+            // {
+            //     softmax_op.softmax_rescale_o<true>(accum_s, accum_o, scale_log2);
+            // } else
+            // {
+            //     softmax_op.softmax_rescale_o<false>(accum_s, accum_o, scale_log2);
+            // }
+
+            Tensor rP   = convert_type<Element>(accum_s);
             Tensor tOrP = make_tensor(rP.data(), convert_layout_acc_Aregs(rP.layout()));
 
             auto K_BLOCK_PV = size<2>(tOrP);
             for (int k = 0; k < K_BLOCK_PV; k++)
             {
                 copy(copyVT_s2r, tOsVt(_, _, k), tOrVt_view(_, _, k));
-                gemm(tiled_mma, acc_o, tOrP(_, _, k), tOrVt(_, _, k), acc_o);
+                gemm(tiled_mma, accum_o, tOrP(_, _, k), tOrVt(_, _, k), accum_o);
             }
             __syncthreads();
         }
 
-        Tensor  rO             = convert_type<Element>(acc_o);
+        // lse = softmax_op.normalize_softmax_lse(accum_o, 1.0f);
+        // softmax_op.normalize_softmax_lse(accum_o, 1.0f);
+
+        Tensor  rO             = convert_type<Element>(accum_o);
         Tensor  sO             = make_tensor(sQ.data(), sQ.layout());
         ThrCopy thr_copy_o_r2s = copyO_r2s.get_slice(threadIdx.x);
         Tensor  tOrO_r2s       = thr_copy_o_r2s.retile_S(rO);

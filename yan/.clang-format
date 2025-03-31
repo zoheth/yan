@@ -10,7 +10,6 @@ AlignConsecutiveDeclarations: true
 
 ColumnLimit: 0
 AllowAllArgumentsOnNextLine: true
-BreakBeforeParameter: Logical
 
 # Add these settings for braces on new line
 BraceWrapping:
