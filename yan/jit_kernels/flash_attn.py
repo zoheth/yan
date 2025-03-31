@@ -1,4 +1,5 @@
 import torch
+import math
 from typing import Tuple
 
 from .tuner import jit_tuner
@@ -53,11 +54,13 @@ def accuracy_test():
         # Temp = torch.zeros(32, 64, 1024, 1024, device='cuda', dtype=torch.half)
         flash_attn(Q, K, V, Output)
         
-        # Calculate expected output: (Q * K^T) * V without softmax
+        # Calculate expected output: softmax(Q * K^T / sqrt(d)) * V
         expected_output = torch.zeros_like(Output)
         for b in range(32):
             for h in range(64):
-                temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1))
+                scale_factor = 1.0 / math.sqrt(Q.shape[-1])
+                temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1)) * scale_factor
+                temp = torch.softmax(temp, dim=-1)
                 expected_output[b, h] = torch.matmul(temp, V[b, h])
                 
         # Calculate difference statistics
@@ -85,4 +88,5 @@ def accuracy_test():
         print(f"2nd max diff at [{b2},{h2},{r2},{c2}]: {Output[b2,h2,r2,c2]:.6f} vs {expected_output[b2,h2,r2,c2]:.6f}")
         print(f"Verification: {'PASSED' if max_diff < 0.2 else 'FAILED'}")
         
-        print(Output[0,0,0,:10])
+        print(Output[18,18])
+        print(expected_output[18,18])

@@ -56,6 +56,7 @@ warp_reduce(T val, ReduceOp op)
 template <bool kIsFirst = true, typename Tensor0, typename Tensor1, class ReduceOp>
 __device__ __forceinline__ void row_thread_reduce(Tensor0 const &tensor, Tensor1 &row_summary, ReduceOp op)
 {
+    CUTE_STATIC_ASSERT_V(size<0>(row_summary) == size<0>(tensor));
     CUTE_UNROLL
     for (int row = 0; row < size<0>(tensor); ++row)
     {
@@ -71,8 +72,9 @@ __device__ __forceinline__ void row_thread_reduce(Tensor0 const &tensor, Tensor1
 template <typename Tensor1, class ReduceOp>
 __device__ __forceinline__ void row_warp_reduce(Tensor1 &row_summary, ReduceOp op)
 {
+    CUTE_STATIC_ASSERT_V(size(row_summary) == size(row_summary));
     CUTE_UNROLL
-    for (int row = 0; row < size(row_summary); ++row)
+    for (int row = 0; row < size<0>(row_summary); ++row)
     {
         // MMA Tiled N=16 线程排布以第一行为例，则为 0011223300112233 001122...
         // 每一行四个连续线程，此处做跨线程reduce
