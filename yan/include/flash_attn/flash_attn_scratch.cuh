@@ -143,7 +143,6 @@ __global__ void flash_attn_cute(CtaTiler cta_tiler, Element *Q, Element *K, Elem
                 gemm(tiled_mma, accum_s, tPrQ(_, _, k), tPrK(_, _, k), accum_s);
             }
 
-            __syncthreads();
             if (j == 0)
             {
                 softmax_op.softmax_rescale_o<true>(accum_s, accum_o, scale_log2);
