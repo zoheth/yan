@@ -31,6 +31,6 @@ def test_flash_attn():
             print()
 
 if __name__ == "__main__":
-    # yan.jit_kernels.accuracy_test()
+    yan.jit_kernels.accuracy_test()
     test_flash_attn()
     
