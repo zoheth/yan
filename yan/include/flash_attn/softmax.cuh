@@ -126,7 +126,7 @@ struct Softmax
     __forceinline__ __device__ Softmax() {};
 
     template <bool kIsFirst, typename Tensor0, typename Tensor1>
-    __forceinline__ __device__ void softmax_rescale_o(Tensor0 &accum_s, Tensor1 &accum_o, float softmax_scale_log2)
+    __forceinline__ __device__ void rescale_output(Tensor0 &accum_s, Tensor1 &accum_o, float softmax_scale_log2)
     {
         Tensor scores = make_tensor(accum_s.data(), convert_layout_acc_rowcol(accum_s.layout()));
         if (kIsFirst)
@@ -160,7 +160,7 @@ struct Softmax
     }
 
     template <typename Tensor0>
-    __forceinline__ __device__ TensorT normalize_softmax_lse(Tensor0 &accum_o, float softmax_scale)
+    __forceinline__ __device__ TensorT normalize_output(Tensor0 &accum_o, float softmax_scale)
     {
         row_warp_reduce(row_sum, SumOp<float>());
         TensorT lse            = make_fragment_like(row_sum);

@@ -102,6 +102,11 @@ def build(name: str, arg_defs: tuple, code: str) -> Runtime:
     # Compiler flags
     nvcc_flags = ['-std=c++17', '-shared', '-O3', '--expt-relaxed-constexpr', '--expt-extended-lambda',
                   '-gencode=arch=compute_89,code=sm_89',
+                #   "-U__CUDA_NO_HALF_OPERATORS__",
+                #   "-U__CUDA_NO_HALF_CONVERSIONS__",
+                #   "-U__CUDA_NO_HALF2_OPERATORS__",
+                #   "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+                  '--use_fast_math',
                   '--ptxas-options=--register-usage-level=10' + (',--verbose' if 'YAN_PTXAS_VERBOSE' in os.environ else ''),
                   # Suppress some unnecessary warnings, such as unused variables for certain `constexpr` branch cases
                   '--diag-suppress=177,174,940']
