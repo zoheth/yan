@@ -18,8 +18,8 @@ def test_softmax():
         assert torch.allclose(y, y_ref, rtol=0.0003, atol=0.0001)
 
     
-    t = bench_kineto(test_func, ('online_softmax_kernel'), suppress_kineto_output=True, flush_l2=True)
-    # t = bench_kineto(test_func, ('cunn_SoftMaxForward'), suppress_kineto_output=True, flush_l2=True)
+    # t = bench_kineto(test_func, ('online_softmax_kernel'), suppress_kineto_output=True, flush_l2=True)
+    t = bench_kineto(test_func, ('cunn_SoftMaxForward'), suppress_kineto_output=True, flush_l2=True)
     # for i, time in enumerate(t):
     #     print(f' > Performance {i}: {time * 1e6:4.0f} us')
     # total_time = sum(t)

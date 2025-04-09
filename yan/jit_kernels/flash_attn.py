@@ -67,7 +67,7 @@ def accuracy_test():
         Q = Q.permute(0, 2, 1, 3)
         K = K.permute(0, 2, 1, 3)
         V = V.permute(0, 2, 1, 3)
-        expected_output = flash_attn_func(Q, K, V)
+        expected_output = flash_attn_func(Q, K, V, causal=True)
         expected_output = expected_output.permute(0, 2, 1, 3)
                 
         # Calculate difference statistics
