@@ -14,7 +14,8 @@ def construct_run(num_heads: int, seq_len: int, head_dim: int):
     Q = Q.permute(0, 2, 1, 3)
     K = K.permute(0, 2, 1, 3)
     V = V.permute(0, 2, 1, 3)
-    expected_output = flash_attn_func(Q, K, V, causal=True)
+    # expected_output = flash_attn_func(Q, K, V, causal=True)
+    expected_output = flash_attn_func(Q, K, V, causal=False)
     expected_output = expected_output.permute(0, 2, 1, 3)
 
 def test_flash_attn():

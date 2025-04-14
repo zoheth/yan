@@ -79,7 +79,7 @@ def accuracy_test():
         
         # c = torch.zeros(m, n, dtype=torch.half, device='cuda')
         
-        # gemm_fp16_tn(a, b, c)
+        gemm_fp16_tn(a, b, c)
         c_ref = a @ b.t()
         # print(c)
         # print(c_ref)
