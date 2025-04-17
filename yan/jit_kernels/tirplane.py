@@ -16,7 +16,7 @@ def tirplane_sampler(input0: torch.Tensor, input1: torch.Tensor, input2: torch.T
                      grid: torch.Tensor, 
                      sample_o: torch.Tensor, final_o: torch.Tensor) -> None:
     H, W, C = input0.shape
-    N = grid.shape[0]//9
+    N = final_o.shape[0]
 
     stream = torch.cuda.current_stream()
 
@@ -51,28 +51,22 @@ def accuracy_test():
         C = 4
         H = 2443
         W = 3
-        N = 1003296
+        N = 1003294
         
-        # input = torch.randn(C, H, W, device='cuda', dtype=torch.float)
-        # grid = torch.randn(N*3, 2, device='cuda', dtype=torch.float)
-        # output = torch.zeros(N, C*9, device='cuda', dtype=torch.float)
-        
-        # tirplane_sampler(input, grid, output)
-        
-        # print(output)
+        N_padded = ((N + 31) // 32) * 32 
         
         weightxy = torch.randn(H, W, C, device='cuda')
         weightyz = torch.randn(H, W, C, device='cuda')
         weightxz = torch.randn(H, W, C, device='cuda')
         
-        grid_in = torch.randn(N, 2, device='cuda', dtype=torch.float)
-        grid_mid = torch.randn(N, 2, device='cuda', dtype=torch.float)
-        grid_out = torch.randn(N, 2, device='cuda', dtype=torch.float)
+        grid_in = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
+        grid_mid = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
+        grid_out = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
 
 
         
-        sample_output = torch.zeros(9, N, C, device='cuda', dtype=torch.float)
-        final_output = torch.zeros(N, C*9, device='cuda', dtype=torch.float)
+        sample_output = torch.zeros(9, N_padded, C, device='cuda', dtype=torch.float)
+        final_output = torch.zeros(N_padded, C*9, device='cuda', dtype=torch.float)
         grid_cute = torch.cat([grid_in, grid_mid, grid_out] * 3, dim=0)
         assert weightxy.is_contiguous()
         assert weightyz.is_contiguous()
@@ -92,14 +86,15 @@ def accuracy_test():
         #     tensor_chunks[5],
         #     tensor_chunks[8],
         # ], dim=1)
-        print(sample_output)
-        print(final_output)
+        
+        #print(sample_output)
+        print(final_output[:N])
         
         weightxy = weightxy.permute(2, 0, 1).contiguous()
         weightyz = weightyz.permute(2, 0, 1).contiguous()
         weightxz = weightxz.permute(2, 0, 1).contiguous()
         
-        grids = [grid_in, grid_mid, grid_out] * 3
+        grids = [grid_in[:N], grid_mid[:N], grid_out[:N]] * 3
         weights = [weightxy, weightxy, weightxy, weightyz, weightyz, weightyz, weightxz, weightxz, weightxz]
         
         features = []
@@ -135,7 +130,7 @@ def accuracy_test():
         print(result)
         torch.cuda.synchronize() if torch.cuda.is_available() else None
         
-        is_close = torch.allclose(final_output, result, rtol=0.0003, atol=0.0001)
+        is_close = torch.allclose(final_output[:N], result, rtol=0.0003, atol=0.0001)
         print("Test passed!" if is_close else "Test failed!")
             
 
