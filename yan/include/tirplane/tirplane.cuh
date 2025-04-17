@@ -178,7 +178,6 @@ void tirplane_sampler(const float *input0, const float *input1, const float *inp
                                          Layout<Shape<_32, _1>>{}, // Thr layout
                                          Layout<Shape<_1, _4>>{}); // Val layout)
 
-    std::cout<<extent<uint128_t[1]>::value<<std::endl;
 
     TiledCopy copy_s2g = make_tiled_copy(Copy_Atom<UniversalCopy<uint128_t>, float>{},
                                          Layout<Shape<_32, _9>, Stride<_9, _1>>{}, // Thr layout
