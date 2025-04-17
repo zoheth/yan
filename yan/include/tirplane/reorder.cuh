@@ -41,16 +41,6 @@ __global__ void some_reorder_kernel(const float *sample, float *output,
     Tensor tOsO = thr_copy2.partition_S(sO);
     Tensor tOgO = thr_copy2.partition_D(gO);
 
-    if(thread0())
-    {
-        print("\n\ntOsO: ");
-        print(tOsO);
-        print("\n\ntOgO: ");
-        print(tOgO);
-        print("\n\ngO: ");
-        print(gO);
-        print("\n\n");
-    }
     copy(copy_s2g, tOsO, tOgO);
     cp_async_fence();
     cp_async_wait<0>();

@@ -15,7 +15,7 @@ tirplane_sampler<C, H, W>(input0, input1, input2, grid, sample_o, final_o, N, st
 def tirplane_sampler(input0: torch.Tensor, input1: torch.Tensor, input2: torch.Tensor, 
                      grid: torch.Tensor, 
                      sample_o: torch.Tensor, final_o: torch.Tensor) -> None:
-    C, H, W = input0.shape
+    H, W, C = input0.shape
     N = grid.shape[0]//9
 
     stream = torch.cuda.current_stream()
@@ -49,9 +49,9 @@ def accuracy_test():
     for _ in range(1):
         torch.manual_seed(42)
         C = 4
-        H = 2048
+        H = 2443
         W = 3
-        N = 334432
+        N = 1003296
         
         # input = torch.randn(C, H, W, device='cuda', dtype=torch.float)
         # grid = torch.randn(N*3, 2, device='cuda', dtype=torch.float)
@@ -61,9 +61,9 @@ def accuracy_test():
         
         # print(output)
         
-        weightxy = torch.randn(C, H, W, device='cuda')
-        weightyz = torch.randn(C, H, W, device='cuda')
-        weightxz = torch.randn(C, H, W, device='cuda')
+        weightxy = torch.randn(H, W, C, device='cuda')
+        weightyz = torch.randn(H, W, C, device='cuda')
+        weightxz = torch.randn(H, W, C, device='cuda')
         
         grid_in = torch.randn(N, 2, device='cuda', dtype=torch.float)
         grid_mid = torch.randn(N, 2, device='cuda', dtype=torch.float)
@@ -79,26 +79,43 @@ def accuracy_test():
         assert weightxz.is_contiguous()
         assert grid_cute.is_contiguous()
         tirplane_sampler(weightxy,weightyz, weightxz, grid_cute, sample_output, final_output)
-
+        
+        # tensor_chunks = [chunk.squeeze(0) for chunk in torch.chunk(sample_output, 9, dim=0)]
+        # final_output_ = torch.cat([
+        #     tensor_chunks[0],
+        #     tensor_chunks[3],
+        #     tensor_chunks[6],
+        #     tensor_chunks[1],
+        #     tensor_chunks[4],
+        #     tensor_chunks[7],
+        #     tensor_chunks[2],
+        #     tensor_chunks[5],
+        #     tensor_chunks[8],
+        # ], dim=1)
+        print(sample_output)
         print(final_output)
+        
+        weightxy = weightxy.permute(2, 0, 1).contiguous()
+        weightyz = weightyz.permute(2, 0, 1).contiguous()
+        weightxz = weightxz.permute(2, 0, 1).contiguous()
         
         grids = [grid_in, grid_mid, grid_out] * 3
         weights = [weightxy, weightxy, weightxy, weightyz, weightyz, weightyz, weightxz, weightxz, weightxz]
         
         features = []
         for grid, weight in zip(grids, weights):
-            # sampled = F.grid_sample(
-            #     weight.unsqueeze(0), 
-            #     grid.unsqueeze(0).unsqueeze(0), 
-            #     align_corners=True,
-            # ) # (1, C, 1, N)
+            sampled = F.grid_sample(
+                weight.unsqueeze(0), 
+                grid.unsqueeze(0).unsqueeze(0), 
+                align_corners=True,
+            ) # (1, C, 1, N)
             
-            x_coords = grid[:, 0]
-            y_coords = grid[:, 1]
-            coord_sum = x_coords + y_coords
-            sampled = torch.zeros(1, C, 1, N, device='cuda', dtype=torch.float)
-            for c in range(C):
-                sampled[0, c, 0, :] = coord_sum
+            # x_coords = grid[:, 0]
+            # y_coords = grid[:, 1]
+            # coord_sum = x_coords + y_coords
+            # sampled = torch.zeros(1, C, 1, N, device='cuda', dtype=torch.float)
+            # for c in range(C):
+            #     sampled[0, c, 0, :] = coord_sum
             
             sampled = sampled.squeeze(0).squeeze(-2).permute(1, 0)
             features.append(sampled)

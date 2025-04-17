@@ -8,3 +8,4 @@ from .utils import get_col_major_tensor
 
 from .cute_gemm import accuracy_test as cute_gemm_accuracy_test
 from .tirplane import accuracy_test as tirplane_accuracy_test
+from .tirplane import tirplane_sampler

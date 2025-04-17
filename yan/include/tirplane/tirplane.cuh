@@ -9,6 +9,95 @@ using namespace cute;
 
 __constant__ float global_input[16 * 1024];
 
+__device__ __forceinline__ float4 scalar_multiply(float4 vec, float scalar) {
+    float4 result;
+    result.x = vec.x * scalar;
+    result.y = vec.y * scalar;
+    result.z = vec.z * scalar;
+    result.w = vec.w * scalar;
+    return result;
+}
+
+__device__ __forceinline__ float4 vector_add(float4 a, float4 b) {
+    float4 result;
+    result.x = a.x + b.x;
+    result.y = a.y + b.y;
+    result.z = a.z + b.z;
+    result.w = a.w + b.w;
+    return result;
+}
+
+template <int C, int H, int W>
+__device__ __forceinline__ float4 bilinear_sample(float x, float y, const float *input)
+{
+    float ix = ((x + 1.0f) / 2.0f) * (W - 1);
+    float iy = ((y + 1.0f) / 2.0f) * (H - 1);
+
+    int ix_nw = floor(ix);
+    int iy_nw = floor(iy);
+    int ix_ne = ix_nw + 1;
+    int iy_ne = iy_nw;
+    int ix_sw = ix_nw;
+    int iy_sw = iy_nw + 1;
+    int ix_se = ix_nw + 1;
+    int iy_se = iy_nw + 1;
+
+    float nw = (ix_se - ix) * (iy_se - iy);
+    float ne = (ix - ix_sw) * (iy_sw - iy);
+    float sw = (ix_ne - ix) * (iy - iy_ne);
+    float se = (ix - ix_nw) * (iy - iy_nw);
+
+    bool nw_valid = (ix_nw >= 0 && ix_nw < W && iy_nw >= 0 && iy_nw < H);
+    bool ne_valid = (ix_ne >= 0 && ix_ne < W && iy_ne >= 0 && iy_ne < H);
+    bool sw_valid = (ix_sw >= 0 && ix_sw < W && iy_sw >= 0 && iy_sw < H);
+    bool se_valid = (ix_se >= 0 && ix_se < W && iy_se >= 0 && iy_se < H);
+    
+    float4 val = {0.0f, 0.0f, 0.0f, 0.0f}; // Initialize val to zeros
+
+    if(nw_valid)
+    {
+        int nw_idx = iy_nw * W + ix_nw;
+        float4 feature = reinterpret_cast<const float4 *>(input)[nw_idx]; 
+        val.x += feature.x * nw;
+        val.y += feature.y * nw;
+        val.z += feature.z * nw;
+        val.w += feature.w * nw;
+    }
+    
+    if(ne_valid)
+    {
+        int ne_idx = iy_ne * W + ix_ne;
+        float4 feature = reinterpret_cast<const float4 *>(input)[ne_idx];
+        val.x += feature.x * ne;
+        val.y += feature.y * ne;
+        val.z += feature.z * ne;
+        val.w += feature.w * ne;
+    }
+    
+    if(sw_valid)
+    {
+        int sw_idx = iy_sw * W + ix_sw;
+        float4 feature = reinterpret_cast<const float4 *>(input)[sw_idx];
+        val.x += feature.x * sw;
+        val.y += feature.y * sw;
+        val.z += feature.z * sw;
+        val.w += feature.w * sw;
+    }
+    
+    if(se_valid)
+    {
+        int se_idx = iy_se * W + ix_se;
+        float4 feature = reinterpret_cast<const float4 *>(input)[se_idx];
+        val.x += feature.x * se;
+        val.y += feature.y * se;
+        val.z += feature.z * se;
+        val.w += feature.w * se;
+    }
+    
+    return val;
+
+}
+
 template <int C, int H, int W>
 __global__ void some_sampler_kernel(const float *input, const float *grid, float *output,
                                     int N)
@@ -22,23 +111,23 @@ __global__ void some_sampler_kernel(const float *input, const float *grid, float
     {
         float4 G2 = reinterpret_cast<const float4 *>(grid)[i / 2];
 
-        float4 val0;
-        val0.x = G2.x + G2.y;
-        val0.y = G2.x + G2.y;
-        val0.z = G2.x + G2.y;
-        val0.w = G2.x + G2.y;
+        // float4 val0;
+        // val0.x = G2.x + G2.y;
+        // val0.y = G2.x + G2.y;
+        // val0.z = G2.x + G2.y;
+        // val0.w = G2.x + G2.y;
 
-        reinterpret_cast<float4 *>(output)[i] = val0;
+        reinterpret_cast<float4 *>(output)[i] = bilinear_sample<4, H, W>(G2.x, G2.y, input); 
 
         if (i + 1 < N * 3)
         {
-            float4 val1;
-            val1.x = G2.z + G2.w;
-            val1.y = G2.z + G2.w;
-            val1.z = G2.z + G2.w;
-            val1.w = G2.z + G2.w;
+            // float4 val1;
+            // val1.x = G2.z + G2.w;
+            // val1.y = G2.z + G2.w;
+            // val1.z = G2.z + G2.w;
+            // val1.w = G2.z + G2.w;
 
-            reinterpret_cast<float4 *>(output)[i + 1] = val1;
+            reinterpret_cast<float4 *>(output)[i + 1] = bilinear_sample<4, H, W>(G2.z, G2.w, input); 
         }
     }
 
@@ -56,7 +145,7 @@ void tirplane_sampler(const float *input0, const float *input1, const float *inp
                       float *sample_o, float *final_o,
                       int N, cudaStream_t stream = 0)
 {
-    // input: (C, H, W)
+    // input: (H, W, C)
     // grid: (N*9, 2)
     // sample: (N*9, C)
     // output: (N, C*9)
@@ -65,11 +154,12 @@ void tirplane_sampler(const float *input0, const float *input1, const float *inp
 
     // cudaMemcpyToSymbol(global_input, input, 64 * 1024);
 
-    constexpr int smem_size = sizeof(float) * C * H * W;
+    // constexpr int smem_size = sizeof(float) * C * H * W;
+    constexpr int smem_size = 0.f;
 
-    cudaFuncSetAttribute(some_sampler_kernel<C, H, W>,
-                         cudaFuncAttributeMaxDynamicSharedMemorySize,
-                         smem_size);
+    // cudaFuncSetAttribute(some_sampler_kernel<C, H, W>,
+    //                      cudaFuncAttributeMaxDynamicSharedMemorySize,
+    //                      smem_size);
     float *cur_grid = grid;
     float *output   = sample_o;
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(input0, grid, output, N);
