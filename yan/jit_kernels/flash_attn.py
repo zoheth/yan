@@ -2,7 +2,6 @@ import math
 from typing import Tuple
 
 import torch
-from flash_attn import flash_attn_func
 
 from .tuner import jit_tuner
 
@@ -57,18 +56,18 @@ def accuracy_test():
         flash_attn_cute(Q, K, V, Output)
         
         # Calculate expected output: softmax(Q * K^T / sqrt(d)) * V
-        # expected_output = torch.zeros_like(Output)
-        # for b in range(32):
-        #     for h in range(64):
-        #         scale_factor = 1.0 / math.sqrt(Q.shape[-1])
-        #         temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1)) * scale_factor
-        #         temp = torch.softmax(temp, dim=-1)
-        #         expected_output[b, h] = torch.matmul(temp, V[b, h])
-        Q = Q.permute(0, 2, 1, 3)
-        K = K.permute(0, 2, 1, 3)
-        V = V.permute(0, 2, 1, 3)
-        expected_output = flash_attn_func(Q, K, V, causal=True)
-        expected_output = expected_output.permute(0, 2, 1, 3)
+        expected_output = torch.zeros_like(Output)
+        for b in range(32):
+            for h in range(64):
+                scale_factor = 1.0 / math.sqrt(Q.shape[-1])
+                temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1)) * scale_factor
+                temp = torch.softmax(temp, dim=-1)
+                expected_output[b, h] = torch.matmul(temp, V[b, h])
+        # Q = Q.permute(0, 2, 1, 3)
+        # K = K.permute(0, 2, 1, 3)
+        # V = V.permute(0, 2, 1, 3)
+        # expected_output = flash_attn_func(Q, K, V, causal=True)
+        # expected_output = expected_output.permute(0, 2, 1, 3)
                 
         # Calculate difference statistics
         diff = torch.abs(Output - expected_output)
