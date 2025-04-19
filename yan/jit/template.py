@@ -75,7 +75,16 @@ def generate(includes: Iterable[str], arg_defs: Iterable[Tuple], body: str) -> s
 #ifdef _WIN32
 #define EXPORT_API __declspec(dllexport)
 #else
-#define EXPORT_API
+#define EXPORT_API __attribute__((visibility("default")))
+#endif
+
+"""
+    else:
+        code += """
+#ifdef _WIN32
+#define EXPORT_API __declspec(dllexport)
+#else
+#define EXPORT_API __attribute__((visibility("default")))
 #endif
 
 """
