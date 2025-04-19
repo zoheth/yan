@@ -6,11 +6,19 @@ from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-jit_include_dir = ('yan/include/gemm', 'yan/include/scan', 'yan/include/reduce', 'yan/include/softmax', 'yan/include/flash_attn')
-third_party_include_dirs = (
-    'third-party/cutlass/include/cute',
-    'third-party/cutlass/include/cutlass',
+jit_include_dir = (
+    "yan/include/gemm",
+    "yan/include/scan",
+    "yan/include/reduce",
+    "yan/include/softmax",
+    "yan/include/flash_attn",
+    "yan/include/tirplane",
 )
+third_party_include_dirs = (
+    "third-party/cutlass/include/cute",
+    "third-party/cutlass/include/cutlass",
+)
+
 
 class PostDevelopCommand(develop):
     def run(self):
@@ -21,9 +29,9 @@ class PostDevelopCommand(develop):
     def make_jit_include_symlinks():
         # Make symbolic links of third-party include directories
         for d in third_party_include_dirs:
-            dirname = d.split('/')[-1]
-            src_dir = f'{current_dir}/{d}'
-            dst_dir = f'{current_dir}/yan/include/{dirname}'
+            dirname = d.split("/")[-1]
+            src_dir = f"{current_dir}/{d}"
+            dst_dir = f"{current_dir}/yan/include/{dirname}"
             assert os.path.exists(src_dir)
             if os.path.exists(dst_dir):
                 assert os.path.islink(dst_dir)
@@ -41,12 +49,12 @@ class CustomBuildPy(build_py):
 
     def prepare_includes(self):
         # Create temporary build directory instead of modifying package directory
-        build_include_dir = os.path.join(self.build_lib, 'yan/include')
+        build_include_dir = os.path.join(self.build_lib, "yan/include")
         os.makedirs(build_include_dir, exist_ok=True)
 
         # Copy third-party includes to the build directory
         for d in third_party_include_dirs:
-            dirname = d.split('/')[-1]
+            dirname = d.split("/")[-1]
             src_dir = os.path.join(current_dir, d)
             dst_dir = os.path.join(build_include_dir, dirname)
 
@@ -57,31 +65,33 @@ class CustomBuildPy(build_py):
             # Copy the directory
             shutil.copytree(src_dir, dst_dir)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # noinspection PyBroadException
     try:
-        cmd = ['git', 'rev-parse', '--short', 'HEAD']
-        revision = '+' + subprocess.check_output(cmd).decode('ascii').rstrip()
+        cmd = ["git", "rev-parse", "--short", "HEAD"]
+        revision = "+" + subprocess.check_output(cmd).decode("ascii").rstrip()
     except:
-        revision = ''
+        revision = ""
 
     setuptools.setup(
-        name='yan',
-        version='1.0.0' + revision,
-        packages=['yan', 'yan/jit', 'yan/jit_kernels'],
+        name="yan",
+        version="1.0.0" + revision,
+        packages=["yan", "yan/jit", "yan/jit_kernels"],
         package_data={
-            'yan': [
-                'include/cute/**/*',
-                'include/cutlass/**/*',
-                'include/gemm/**/*',
-                'include/scan/**/*',
-                'include/reduce/**/*',
-                'include/softmax/**/*',
-                'include/flash_attn/**/*',
+            "yan": [
+                "include/cute/**/*",
+                "include/cutlass/**/*",
+                "include/gemm/**/*",
+                "include/scan/**/*",
+                "include/reduce/**/*",
+                "include/softmax/**/*",
+                "include/flash_attn/**/*",
+                "include/tirplane/**/*",
             ]
         },
         cmdclass={
-            'develop': PostDevelopCommand,
-            'build_py': CustomBuildPy,
+            "develop": PostDevelopCommand,
+            "build_py": CustomBuildPy,
         },
     )
