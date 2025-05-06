@@ -23,24 +23,46 @@ def tirplane_sampler(input0: torch.Tensor, input1: torch.Tensor, input2: torch.T
     global includes, template
     
     args = (input0, input1, input2, grid, sample_o, final_o, N, stream)
-    runtime = jit_tuner.compile_and_tune(
-        name='tirplane_sampler',
-        keys={'C': C, 'H': H, 'W': W},
-        space=(),
-        includes=includes,
-        arg_defs=(
-            ('input0', torch.float),
-            ('input1', torch.float),
-            ('input2', torch.float),
-            ('grid', torch.float),
-            ('sample_o', torch.float),
-            ('final_o', torch.float),
-            ('N', int),
-            ('stream', torch.cuda.Stream)
-        ),
-        template=template,
-        args=args
-    )
+    
+    if(input0.dtype == torch.half):
+        runtime = jit_tuner.compile_and_tune(
+            name='tirplane_sampler',
+            keys={'C': C, 'H': H, 'W': W},
+            space=(),
+            includes=includes,
+            arg_defs=(
+                ('input0', torch.half),
+                ('input1', torch.half),
+                ('input2', torch.half),
+                ('grid', torch.float),
+                ('sample_o', torch.float),
+                ('final_o', torch.float),
+                ('N', int),
+                ('stream', torch.cuda.Stream)
+            ),
+            template=template,
+            args=args
+        )
+        
+    else:
+        runtime = jit_tuner.compile_and_tune(
+            name='tirplane_sampler',
+            keys={'C': C, 'H': H, 'W': W},
+            space=(),
+            includes=includes,
+            arg_defs=(
+                ('input0', torch.float),
+                ('input1', torch.float),
+                ('input2', torch.float),
+                ('grid', torch.float),
+                ('sample_o', torch.float),
+                ('final_o', torch.float),
+                ('N', int),
+                ('stream', torch.cuda.Stream)
+            ),
+            template=template,
+            args=args
+        )
     
     runtime(*args)
 
@@ -53,17 +75,15 @@ def accuracy_test():
         W = 3
         N = 1003294
         
-        N_padded = ((N + 31) // 32) * 32 
+        N_padded = ((N + 63) // 64) * 64 
         
-        weightxy = torch.randn(H, W, C, device='cuda')
-        weightyz = torch.randn(H, W, C, device='cuda')
-        weightxz = torch.randn(H, W, C, device='cuda')
+        weightxy = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightyz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightxz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
         
         grid_in = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
         grid_mid = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
         grid_out = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
-
-
         
         sample_output = torch.zeros(9, N_padded, C, device='cuda', dtype=torch.float)
         final_output = torch.zeros(N_padded, C*9, device='cuda', dtype=torch.float)
@@ -73,21 +93,6 @@ def accuracy_test():
         assert weightxz.is_contiguous()
         assert grid_cute.is_contiguous()
         tirplane_sampler(weightxy,weightyz, weightxz, grid_cute, sample_output, final_output)
-        
-        # tensor_chunks = [chunk.squeeze(0) for chunk in torch.chunk(sample_output, 9, dim=0)]
-        # final_output_ = torch.cat([
-        #     tensor_chunks[0],
-        #     tensor_chunks[3],
-        #     tensor_chunks[6],
-        #     tensor_chunks[1],
-        #     tensor_chunks[4],
-        #     tensor_chunks[7],
-        #     tensor_chunks[2],
-        #     tensor_chunks[5],
-        #     tensor_chunks[8],
-        # ], dim=1)
-        
-        #print(sample_output)
         print(final_output[:N])
         
         weightxy = weightxy.permute(2, 0, 1).contiguous()
@@ -100,7 +105,7 @@ def accuracy_test():
         features = []
         for grid, weight in zip(grids, weights):
             sampled = F.grid_sample(
-                weight.unsqueeze(0), 
+                weight.unsqueeze(0).float(), 
                 grid.unsqueeze(0).unsqueeze(0), 
                 align_corners=True,
             ) # (1, C, 1, N)

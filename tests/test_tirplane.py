@@ -11,8 +11,8 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     C = 4
     H = 2443
     W = 3
-    #N = 1003296
-    N = 334432
+    N = 1003264
+    # N = 334464
     
     # Initialize timing arrays
     method1_times = []
@@ -23,9 +23,9 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     for _ in range(warmup_runs):
         # Initialize data
         # torch.manual_seed(42)
-        weightxy = torch.randn(H, W, C, device='cuda')
-        weightyz = torch.randn(H, W, C, device='cuda')
-        weightxz = torch.randn(H, W, C, device='cuda')
+        weightxy = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightyz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightxz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
         
         grid_in = torch.randn(N, 2, device='cuda', dtype=torch.float)
         grid_mid = torch.randn(N, 2, device='cuda', dtype=torch.float)
@@ -38,9 +38,9 @@ def benchmark_test(num_runs=100, warmup_runs=10):
         # Run both methods once to warm up GPU
         tirplane_sampler(weightxy, weightyz, weightxz, grid_cute, sample_output, final_output)
         torch.cuda.empty_cache()
-        weightxy = weightxy.permute(2, 0, 1)
-        weightyz = weightyz.permute(2, 0, 1)
-        weightxz = weightxz.permute(2, 0, 1)
+        weightxy = weightxy.permute(2, 0, 1).float().contiguous()
+        weightyz = weightyz.permute(2, 0, 1).float().contiguous()
+        weightxz = weightxz.permute(2, 0, 1).float().contiguous()
         
         # Method 2print
         grids = [grid_in, grid_mid, grid_out] * 3
@@ -69,9 +69,9 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     for run in range(num_runs):
         # Initialize data with same seed for fair comparison
         torch.manual_seed(run)  # Different seed each run but same for both methods
-        weightxy = torch.randn(H, W, C, device='cuda')
-        weightyz = torch.randn(H, W, C, device='cuda')
-        weightxz = torch.randn(H, W, C, device='cuda')
+        weightxy = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightyz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightxz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
         
         grid_in = torch.randn(N, 2, device='cuda', dtype=torch.float)
         grid_mid = torch.randn(N, 2, device='cuda', dtype=torch.float)
@@ -91,34 +91,19 @@ def benchmark_test(num_runs=100, warmup_runs=10):
         # Synchronize before timing
         torch.cuda.synchronize()
         start_time = time.time()
-        
-        # Run method 1
+
         tirplane_sampler(weightxy, weightyz, weightxz, grid_cute, sample_output, final_output)
-        
-        # Run tensor chunking and concatenation
-        # tensor_chunks = [chunk.squeeze(0) for chunk in torch.chunk(sample_output, 9, dim=0)]
-        # final_output_ = torch.cat([
-        #     tensor_chunks[0],
-        #     tensor_chunks[3],
-        #     tensor_chunks[6],
-        #     tensor_chunks[1],
-        #     tensor_chunks[4],
-        #     tensor_chunks[7],
-        #     tensor_chunks[2],
-        #     tensor_chunks[5],
-        #     tensor_chunks[8],
-        # ], dim=1)
+
         
         # Synchronize after timing
         torch.cuda.synchronize()
         end_time = time.time()
         method1_times.append(end_time - start_time)
         torch.cuda.empty_cache()
-        weightxy = weightxy.permute(2, 0, 1)
-        weightyz = weightyz.permute(2, 0, 1)
-        weightxz = weightxz.permute(2, 0, 1)
+        weightxy = weightxy.permute(2, 0, 1).float().contiguous()
+        weightyz = weightyz.permute(2, 0, 1).float().contiguous()
+        weightxz = weightxz.permute(2, 0, 1).float().contiguous()
         
-        # Method 2: Manual implementation
         # Synchronize before timing
         torch.cuda.synchronize()
         start_time = time.time()
@@ -173,14 +158,14 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     method2_times = np.array(method2_times) * 1000  # convert to ms
     
     print("\n--- Benchmark Results (time in ms) ---")
-    print(f"Method 1 (tirplane_sampler + chunking):")
+    print(f"Yan's tirplane_sampler:")
     print(f"  Mean: {np.mean(method1_times):.4f} ms")
     print(f"  Median: {np.median(method1_times):.4f} ms")
     print(f"  Min: {np.min(method1_times):.4f} ms")
     print(f"  Max: {np.max(method1_times):.4f} ms")
     print(f"  Std Dev: {np.std(method1_times):.4f} ms")
     
-    print(f"\nMethod 2 (manual implementation):")
+    print(f"\nTorch implementation:")
     print(f"  Mean: {np.mean(method2_times):.4f} ms")
     print(f"  Median: {np.median(method2_times):.4f} ms")
     print(f"  Min: {np.min(method2_times):.4f} ms")
@@ -188,38 +173,8 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     print(f"  Std Dev: {np.std(method2_times):.4f} ms")
     
     speedup = np.mean(method2_times) / np.mean(method1_times)
-    print(f"\nMethod 1 is {speedup:.2f}x faster than Method 2" if speedup > 1 else 
-          f"\nMethod 2 is {1/speedup:.2f}x faster than Method 1")
-    
-    # Plot results if matplotlib is available
-    try:
-        import matplotlib.pyplot as plt
-        
-        plt.figure(figsize=(12, 6))
-        
-        # Plot time series
-        plt.subplot(1, 2, 1)
-        plt.plot(method1_times, label='Method 1')
-        plt.plot(method2_times, label='Method 2')
-        plt.xlabel('Run Number')
-        plt.ylabel('Time (ms)')
-        plt.title('Execution Time per Run')
-        plt.legend()
-        
-        # Plot histogram
-        plt.subplot(1, 2, 2)
-        plt.hist(method1_times, alpha=0.5, label='Method 1')
-        plt.hist(method2_times, alpha=0.5, label='Method 2')
-        plt.xlabel('Time (ms)')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Execution Times')
-        plt.legend()
-        
-        plt.tight_layout()
-        plt.savefig('benchmark_results.png')
-        print("\nPlot saved as 'benchmark_results.png'")
-    except ImportError:
-        print("\nMatplotlib not available, skipping plot generation")
+    print(f"\nYan is {speedup:.2f}x faster than Torch" if speedup > 1 else 
+          f"\nTorch is {1/speedup:.2f}x faster than Yan")
 
     return np.mean(method1_times), np.mean(method2_times)
 
