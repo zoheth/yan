@@ -189,4 +189,4 @@ if __name__ == "__main__":
     # print(f"Average time per iteration: {avg_time:.6f} seconds")
     
     yan.jit_kernels.tirplane_accuracy_test()
-    benchmark_test(num_runs=100, warmup_runs=10)
+    # benchmark_test(num_runs=100, warmup_runs=10)

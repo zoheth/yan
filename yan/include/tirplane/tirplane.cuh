@@ -180,6 +180,8 @@ __global__ void some_sampler_kernel(const float *input, const float *grid, float
         float4 G2 = reinterpret_cast<const float4 *>(grid)[i / 2];
 
         reinterpret_cast<float4 *>(output)[i] = bilinear_sample<4, H, W>(G2.x, G2.y, input); 
+        // float4 val = {1.0f, 1.0f, 1.0f, 1.0f}; 
+        // reinterpret_cast<float4 *>(output)[i] = val;
 
         if (i + 1 < N * 3)
         {
@@ -267,19 +269,20 @@ void tirplane_sampler(const half *input0, const half *input1, const half *input2
     float *cur_grid = grid;
     float *output   = sample_o;
     assert(H * W * C <= 32 * 1024);
-    // cudaMemcpyToSymbol(global_input, input0, H * W * C * sizeof(half));
+    cudaMemcpyToSymbol(global_input, input0, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(grid, output, N);
+    cudaDeviceSynchronize();
 
     cur_grid += (N * 3 * 2);
     output += (N * 3 * C);
-    // cudaMemcpyToSymbol(global_input, input1, H * W * C * sizeof(half));
+    cudaMemcpyToSymbol(global_input, input1, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(cur_grid, output, N);
+    cudaDeviceSynchronize();
 
     cur_grid += (N * 3 * 2);
     output += (N * 3 * C);
-    // cudaMemcpyToSymbol(global_input, input2, H * W * C * sizeof(half));
+    cudaMemcpyToSymbol(global_input, input2, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(cur_grid, output, N);
-
     cudaDeviceSynchronize();
 
     some_reorder<C, H, W>(sample_o, final_o, N, stream);
