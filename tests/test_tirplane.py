@@ -136,5 +136,5 @@ def benchmark_test(num_runs=100, warmup_runs=10):
     return np.mean(method1_times), np.mean(method2_times)
 
 if __name__ == "__main__":
-    # yan.jit_kernels.tirplane_accuracy_test()
+    yan.jit_kernels.tirplane_accuracy_test()
     benchmark_test(num_runs=100, warmup_runs=10)

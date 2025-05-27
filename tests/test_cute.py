@@ -42,13 +42,13 @@ def test_cute_gemm():
 if __name__ == "__main__":
     yan.jit_kernels.cute_gemm_accuracy_test()
     
-    # torch.backends.cuda.matmul.allow_tf32 = True
-    # torch.backends.cudnn.allow_tf32 = True
-    # torch.manual_seed(42)
-    # random.seed(42)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.manual_seed(42)
+    random.seed(42)
 
-    # print('Library path:')
-    # print(f' > {yan.__path__}\n')
+    print('Library path:')
+    print(f' > {yan.__path__}\n')
 
-    # test_cute_gemm()
+    test_cute_gemm()
     
