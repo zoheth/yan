@@ -77,9 +77,9 @@ def accuracy_test():
         
         N_padded = ((N + 63) // 64) * 64 
         
-        weightxy = torch.randn(H, W, C, device='cuda', dtype=torch.float)
-        weightyz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
-        weightxz = torch.randn(H, W, C, device='cuda', dtype=torch.float)
+        weightxy = torch.randn(H, W, C, device='cuda', dtype=torch.half)
+        weightyz = torch.randn(H, W, C, device='cuda', dtype=torch.half)
+        weightxz = torch.randn(H, W, C, device='cuda', dtype=torch.half)
         
         grid_in = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)
         grid_mid = torch.randn(N_padded, 2, device='cuda', dtype=torch.float)

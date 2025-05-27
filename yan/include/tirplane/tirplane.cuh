@@ -269,19 +269,19 @@ void tirplane_sampler(const half *input0, const half *input1, const half *input2
     float *cur_grid = grid;
     float *output   = sample_o;
     assert(H * W * C <= 32 * 1024);
-    cudaMemcpyToSymbol(global_input, input0, H * W * C * sizeof(half));
+    // cudaMemcpyToSymbol(global_input, input0, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(grid, output, N);
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
 
     cur_grid += (N * 3 * 2);
     output += (N * 3 * C);
-    cudaMemcpyToSymbol(global_input, input1, H * W * C * sizeof(half));
+    // cudaMemcpyToSymbol(global_input, input1, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(cur_grid, output, N);
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
 
     cur_grid += (N * 3 * 2);
     output += (N * 3 * C);
-    cudaMemcpyToSymbol(global_input, input2, H * W * C * sizeof(half));
+    // cudaMemcpyToSymbol(global_input, input2, H * W * C * sizeof(half));
     some_sampler_kernel<C, H, W><<<kNumBlocks, kNumThreads, smem_size, stream>>>(cur_grid, output, N);
     cudaDeviceSynchronize();
 

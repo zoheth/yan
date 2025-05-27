@@ -5,7 +5,7 @@
 
 using namespace cute;
 
-constexpr int ALIGNMENT = 64;
+constexpr int ALIGNMENT = 32;
 
 template <int C, class TiledCopy_g2s, class TiledCopy_s2g>
 __global__ void some_reorder_kernel(const float *sample, float *output,
@@ -74,7 +74,7 @@ inline void some_reorder(const float *sample, float *output,
 
     TiledCopy copy_g2s = make_tiled_copy(Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<uint128_t>, float>{},
                                          Layout<Shape<_32, _1>>{}, // Thr layout
-                                         Layout<Shape<_1, _8>>{}); // Val layout)
+                                         Layout<Shape<_1, _4>>{}); // Val layout)
 
     TiledCopy copy_s2g = make_tiled_copy(Copy_Atom<UniversalCopy<uint128_t>, float>{},
                                          Layout<Shape<_32, _9>, Stride<_9, _1>>{}, // Thr layout
