@@ -24,6 +24,7 @@ class PostDevelopCommand(develop):
     def run(self):
         develop.run(self)
         self.make_jit_include_symlinks()
+        self.make_jit_include_symlinks_specific()
 
     @staticmethod
     def make_jit_include_symlinks():
@@ -37,6 +38,18 @@ class PostDevelopCommand(develop):
                 assert os.path.islink(dst_dir)
                 os.unlink(dst_dir)
             os.symlink(src_dir, dst_dir, target_is_directory=True)
+
+    @staticmethod
+    def make_jit_include_symlinks_specific():
+        tk_dir = "third-party/ThunderKittens"
+        src_dir = f"{current_dir}/{tk_dir}/include"
+        dst_dir = f"{current_dir}/yan/include/tk"
+        assert os.path.exists(src_dir)
+        if os.path.exists(dst_dir):
+            assert os.path.islink(dst_dir)
+            os.unlink(dst_dir)
+        os.symlink(src_dir, dst_dir, target_is_directory=True)
+
 
 
 class CustomBuildPy(build_py):

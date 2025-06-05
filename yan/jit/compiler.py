@@ -105,10 +105,10 @@ def get_default_user_dir():
     if IS_WINDOWS:
         # Use %LOCALAPPDATA% on Windows, which is typically C:\Users\<username>\AppData\Local
         base_dir = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-        return os.path.join(base_dir, '.yan')
+        return os.path.join(base_dir, 'yan')
     else:
         # Use ~/.yan on Linux/macOS
-        return os.path.expanduser('~/.yan')
+        return os.path.expanduser('~/.cache/yan')
 
 
 @functools.lru_cache(maxsize=None)
