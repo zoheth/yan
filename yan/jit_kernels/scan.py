@@ -1,5 +1,6 @@
 import torch
 from .tuner import jit_tuner
+from .utils import compare_tensors
 
 includes = ('"scan/naive_scan.cuh"', )
 template = """
@@ -41,10 +42,7 @@ def accuracy_test():
         
         naive_scan(x, y)
         
-        print(y)
-        print(y_ref)
-        
-        assert torch.allclose(y, y_ref, rtol=0.5, atol=0.1)
+        compare_tensors(y, y_ref, rtol=0.5, atol=0.1)
         
         print("Test passed!")
 

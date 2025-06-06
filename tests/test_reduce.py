@@ -27,6 +27,6 @@ def test_sum_reduce():
 
 
 if __name__ == "__main__":
-    yan.jit_kernels.accuracy_test()
+    yan.jit_kernels.reduce_sum_max_accuracy_test()
     test_sum_reduce()
     

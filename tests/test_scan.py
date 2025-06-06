@@ -29,6 +29,6 @@ def test_naive_scan():
 
 
 if __name__ == "__main__":
-    yan.jit_kernels.accuracy_test()
+    yan.jit_kernels.naive_scan_accuracy_test()
     test_naive_scan()
     

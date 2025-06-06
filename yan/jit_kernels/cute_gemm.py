@@ -2,6 +2,7 @@ import torch
 from typing import Tuple
 
 from .tuner import jit_tuner
+from .utils import compare_tensors
 
 includes = ('"gemm/cute_gemm.cuh"', )
 template = """
@@ -81,11 +82,9 @@ def accuracy_test():
         
         gemm_fp16_tn(a, b, c)
         c_ref = a @ b.t()
-        # print(c)
-        # print(c_ref)
-        # assert torch.allclose(c, c_ref, rtol=0.5, atol=0.1)
+
+        compare_tensors(c, c_ref, rtol=0.5, atol=0.1)
         
-        print("Simple GEMM test passed!")
 
 if __name__ == "__main__":
     accuracy_test()

@@ -2,8 +2,10 @@ import math
 from typing import Tuple
 
 import torch
+import torch.nn.functional as F
 
 from .tuner import jit_tuner
+from .utils import compare_tensors
 
 includes = ('"flash_attn/flash_attn.cuh"', )
 template = """
@@ -56,40 +58,14 @@ def accuracy_test():
         flash_attn_cute(Q, K, V, Output)
         
         # Calculate expected output: softmax(Q * K^T / sqrt(d)) * V
-        expected_output = torch.zeros_like(Output)
-        for b in range(32):
-            for h in range(64):
-                scale_factor = 1.0 / math.sqrt(Q.shape[-1])
-                temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1)) * scale_factor
-                temp = torch.softmax(temp, dim=-1)
-                expected_output[b, h] = torch.matmul(temp, V[b, h])
-        # Q = Q.permute(0, 2, 1, 3)
-        # K = K.permute(0, 2, 1, 3)
-        # V = V.permute(0, 2, 1, 3)
-        # expected_output = flash_attn_func(Q, K, V, causal=True)
-        # expected_output = expected_output.permute(0, 2, 1, 3)
+        # expected_output = torch.zeros_like(Output)
+        # for b in range(32):
+        #     for h in range(64):
+        #         scale_factor = 1.0 / math.sqrt(Q.shape[-1])
+        #         temp = torch.matmul(Q[b, h], K[b, h].transpose(0, 1)) * scale_factor
+        #         temp = torch.softmax(temp, dim=-1)
+        #         expected_output[b, h] = torch.matmul(temp, V[b, h])
+
+        expected_output = F.scaled_dot_product_attention(Q, K, V)
                 
-        # Calculate difference statistics
-        diff = torch.abs(Output - expected_output)
-        max_diff = diff.max()
-        mean_diff = diff.mean()
-        
-        # Find max diff location (safely)
-        max_indices = (diff == max_diff).nonzero()
-        b, h, r, c = max_indices[0].tolist() if max_indices.numel() > 0 else (0, 0, 0, 0)
-        
-        # Find second largest diff (safely)
-        diff_flat = diff.flatten()
-        k = min(2, diff_flat.numel())
-        values, indices = diff_flat.topk(k)
-        second_idx = indices[min(1, k-1)]
-        b2, h2, r2, c2 = [i.item() for i in torch.unravel_index(second_idx, diff.shape)]
-        
-        # Print key results
-        print(f"Sample outputs at [15,53,100,:10]:")
-        print(f"Actual: {Output[15,53,100,:10]}")
-        print(f"Expected: {expected_output[15,53,100,:10]}")
-        print(f"Mean diff: {mean_diff:.6f}, Max diff: {max_diff:.6f}")
-        print(f"Max diff at [{b},{h},{r},{c}]: {Output[b,h,r,c]:.6f} vs {expected_output[b,h,r,c]:.6f}")
-        print(f"2nd max diff at [{b2},{h2},{r2},{c2}]: {Output[b2,h2,r2,c2]:.6f} vs {expected_output[b2,h2,r2,c2]:.6f}")
-        print(f"Verification: {'PASSED' if max_diff < 0.001 else 'FAILED'}")
+        compare_tensors(Output, expected_output, rtol=1e-3, atol=1e-3)

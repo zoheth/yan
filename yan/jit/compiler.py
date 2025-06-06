@@ -155,7 +155,7 @@ def build(name: str, arg_defs: tuple, code: str) -> Runtime:
     lib_ext = '.dll' if IS_WINDOWS else '.so'
     
     # Base compiler flags
-    common_flags = ['-std=c++17', '-O3', '--expt-relaxed-constexpr', '--expt-extended-lambda',
+    common_flags = ['-std=c++20', '-O3', '--expt-relaxed-constexpr', '--expt-extended-lambda',
                    '-gencode=arch=compute_89,code=sm_89',
                    '--use_fast_math']
     
