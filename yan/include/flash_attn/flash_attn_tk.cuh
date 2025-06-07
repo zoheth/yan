@@ -126,7 +126,7 @@ void flash_attn_func(bf16 *query, bf16 *key, bf16 *value, bf16 *output, int batc
 
     Globals<HEAD_DIM> globals{Qg, Kg, Vg, Og};
 
-    dim3 grid(seq_len / qkvo_tile<HEAD_DIM>::rows * NUM_WORKERS, num_heads, batch_size);
+    dim3 grid(seq_len / (qkvo_tile<HEAD_DIM>::rows * NUM_WORKERS), num_heads, batch_size);
 
     cudaFuncSetAttribute(attend_ker<HEAD_DIM>, cudaFuncAttributeMaxDynamicSharedMemorySize, 100000/2);
     attend_ker<HEAD_DIM><<<grid, 32 * NUM_WORKERS, 100000/2, stream>>>(globals);

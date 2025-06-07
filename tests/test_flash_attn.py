@@ -19,8 +19,8 @@ def construct_run(num_heads: int, seq_len: int, head_dim: int):
     expected_output = expected_output.permute(0, 2, 1, 3)
 
 def test_flash_attn():
-    for seq_len in (1024, ):
-        for num_heads, head_dim in [(64, 128), ]:
+    for seq_len in (1024,2048, ):
+        for num_heads, head_dim in [(16, 64), (64, 128) ]:
             def test_func():
                 construct_run(num_heads, seq_len, head_dim)
                 

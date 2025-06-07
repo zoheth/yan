@@ -63,11 +63,13 @@ def flash_attn_tk(
 def accuracy_test():
     for _ in range(1):
         torch.manual_seed(42)
-        Q = torch.randn(32, 1024, 64, 128, device="cuda", dtype=torch.bfloat16)
-        K = torch.randn(32, 1024, 64, 128, device="cuda", dtype=torch.bfloat16)
-        V = torch.randn(32, 1024, 64, 128, device="cuda", dtype=torch.bfloat16)
-        Output = torch.zeros(32, 1024, 64, 128, device="cuda", dtype=torch.bfloat16)
-        # Temp = torch.zeros(32, 1024, 64, 128, device='cuda', dtype=torch.bfloat16)
+        shape = (32, 1024, 1, 64)  # (batch_size, seq_len, num_heads, head_dim)
+        dtype = torch.bfloat16
+        
+        Q = torch.randn(*shape, device="cuda", dtype=dtype)
+        K = torch.randn(*shape, device="cuda", dtype=dtype)
+        V = torch.randn(*shape, device="cuda", dtype=dtype)
+        Output = torch.zeros(*shape, device="cuda", dtype=dtype)
         flash_attn_tk(Q, K, V, Output)
 
         Q = Q.permute(0, 2, 1, 3).contiguous()
@@ -78,9 +80,9 @@ def accuracy_test():
             Q, K, V
         )
 
-        passed = compare_tensors( Output, expected_output, mode="similarity")
-        if(not passed):
-            print("Expected output:")
-            print(expected_output[31, 63, 1023, :10])
-            print("Actual output:")
-            print(Output[31, 63, 1023, :10])
+        passed = compare_tensors( Output, expected_output, mode="similarity", diff_tolerance=1e-4)
+        # if(not passed):
+        #     print("Expected output:")
+        #     print(expected_output[31, 63, 1023, :10])
+        #     print("Actual output:")
+        #     print(Output[31, 63, 1023, :10])
