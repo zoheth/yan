@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #define KITTENS_4090
+#define KITTENS_TIMINGS
 
 using namespace kittens;
 
@@ -11,19 +12,34 @@ constexpr int PIPE_STAGES = 3;
 
 template <int D>
 constexpr size_t ROWS = 16 * (128 / D); // height of each worker tile (rows)
+
 template <int D, typename T = bf16, typename L = row_l>
 using qkvo_tile = rt<T, ROWS<D>, D, L>;
+
 template <int D, typename T = float>
 using attn_tile = rt<T, ROWS<D>, ROWS<D>>;
+
 template <int D>
 using shared_tile = st_bf<ROWS<D>, D>;
+
 template <int D>
 using global_layout = gl<bf16, -1, -1, -1, D>; // B, N, H, specified at runtime, D known at compile time for this kernel
+
 template <int D>
 struct Globals
 {
     global_layout<D> Qg, Kg, Vg, Og;
+#ifdef KITTENS_TIMINGS
+    gl<int, 1, -1, -1, 64> timings;
+#endif
 };
+
+__device__ int get_smid(void)
+{
+    int smid;
+    asm volatile("mov.u32 %0, %%smid;" : "=r"(smid));
+    return smid;
+}
 
 template <int D>
 __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
@@ -34,6 +50,14 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
     int           loadid = load_group::groupid(), workerid = kittens::warpid(); // which worker am I?
     constexpr int LOAD_BLOCKS = NUM_WORKERS / load_group::GROUP_WARPS;
     const int     batch = blockIdx.z, head = blockIdx.y, q_seq = blockIdx.x * NUM_WORKERS + workerid;
+
+#ifdef KITTENS_TIMINGS
+    int smid = get_smid();
+    if (group<4>::laneid() == 0)
+    {
+        g.timings[coord<>{smid, 0, 0}] = clock64();
+    }
+#endif
 
     extern __shared__ alignment_dummy __shm[];
     shared_allocator                  al((int *)&__shm[0]);
@@ -58,6 +82,13 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
     }
     __syncthreads();
 
+#ifdef KITTENS_TIMINGS
+    if (group<4>::laneid() == 0)
+    {
+        g.timings[coord<>{smid, 0, 1}] = clock64();
+    }
+#endif
+
     if constexpr (D == 64)
         q_reg *= __float2bfloat16(0.125f * 1.44269504089f);
     else if constexpr (D == 128)
@@ -70,6 +101,14 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
     int kv_blocks = (g.Kg.depth() + LOAD_BLOCKS * ROWS<D> - 1) / (LOAD_BLOCKS * ROWS<D>), tic = 0;
     load_group::load_async<1, false>(k_smem[loadid][0], g.Kg, {batch, loadid, head, 0});
     load_group::load_async<1, false>(v_smem[loadid][0], g.Vg, {batch, loadid, head, 0});
+
+#ifdef KITTENS_TIMINGS
+    if (group<4>::laneid() == 0)
+    {
+        g.timings[coord<>{smid, 0, 2}] = clock64();
+    }
+#endif
+
     // iterate over k, v for these q's that have been loaded
     for (auto kv_idx = 0; kv_idx < kv_blocks; kv_idx++, tic = (tic + 1) % 3)
     {
@@ -106,6 +145,13 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
         }
     }
 
+#ifdef KITTENS_TIMINGS
+    if (group<4>::laneid() == 0)
+    {
+        g.timings[coord<>{smid, 0, 3}] = clock64();
+    }
+#endif
+
     o_reg /= norm_vec;
     __syncthreads();
     if (q_seq * ROWS<D> < g.Og.depth())
@@ -114,22 +160,29 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
         __syncwarp();
         store<1, false>(g.Og, qo_smem[workerid], {batch, q_seq, head, 0});
     }
+
+#ifdef KITTENS_TIMINGS
+    if (group<4>::laneid() == 0)
+    {
+        g.timings[coord<>{smid, 0, 4}] = clock64();
+    }
+#endif
 }
 
 template <int HEAD_DIM>
-void flash_attn_func(bf16 *query, bf16 *key, bf16 *value, bf16 *output, int batch_size, int num_heads, int seq_len, cudaStream_t stream)
+void flash_attn_func(bf16 *query, bf16 *key, bf16 *value, bf16 *output, int batch_size, int num_heads, int seq_len, cudaStream_t stream, int* timings)
 {
     global_layout<HEAD_DIM> Qg(query, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Kg(key, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Vg(value, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Og(output, batch_size, seq_len, num_heads, nullptr);
-
+    gl<int, 1, -1, -1, 64> timings_gl(timings, 1, 128, 1, nullptr);
     Globals<HEAD_DIM> globals{Qg, Kg, Vg, Og};
 
     dim3 grid(seq_len / (qkvo_tile<HEAD_DIM>::rows * NUM_WORKERS), num_heads, batch_size);
 
-    cudaFuncSetAttribute(attend_ker<HEAD_DIM>, cudaFuncAttributeMaxDynamicSharedMemorySize, 100000/2);
-    attend_ker<HEAD_DIM><<<grid, 32 * NUM_WORKERS, 100000/2, stream>>>(globals);
+    cudaFuncSetAttribute(attend_ker<HEAD_DIM>, cudaFuncAttributeMaxDynamicSharedMemorySize, 100000 / 2);
+    attend_ker<HEAD_DIM><<<grid, 32 * NUM_WORKERS, 100000 / 2, stream>>>(globals);
     if (cudaPeekAtLastError() != cudaSuccess)
     {
         throw std::runtime_error("Kernel launch failed: " + std::string(cudaGetErrorString(cudaPeekAtLastError())));

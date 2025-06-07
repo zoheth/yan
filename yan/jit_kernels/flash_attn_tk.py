@@ -12,12 +12,12 @@ template = """
 // Templated args from Python JIT call
 constexpr auto d = {D};
 
-flash_attn_func<d>(Q, K, V, O, batch_size, num_heads, seq_len, stream);
+flash_attn_func<d>(Q, K, V, O, batch_size, num_heads, seq_len, stream, timings);
 """
 
 
 def flash_attn_tk(
-    Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, Output: torch.Tensor
+    Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, Output: torch.Tensor, timings: torch.Tensor
 ) -> None:
     batch_size = Q.shape[0]
     num_heads = Q.shape[2]
@@ -37,7 +37,7 @@ def flash_attn_tk(
 
     global includes, template
 
-    args = (Q, K, V, Output, batch_size, num_heads, seq_len, stream)
+    args = (Q, K, V, Output, batch_size, num_heads, seq_len, stream, timings)
     runtime = jit_tuner.compile_and_tune(
         name="flash_attn_func",
         keys={"D": d},
@@ -52,6 +52,7 @@ def flash_attn_tk(
             ("num_heads", int),
             ("seq_len", int),
             ("stream", torch.cuda.Stream),
+            ("timings", torch.int32),
         ),
         template=template,
         args=args,
@@ -70,7 +71,10 @@ def accuracy_test():
         K = torch.randn(*shape, device="cuda", dtype=dtype)
         V = torch.randn(*shape, device="cuda", dtype=dtype)
         Output = torch.zeros(*shape, device="cuda", dtype=dtype)
-        flash_attn_tk(Q, K, V, Output)
+        
+        timings = torch.zeros([128, 64], device="cuda", dtype=torch.int32)
+        
+        flash_attn_tk(Q, K, V, Output, timings)
 
         Q = Q.permute(0, 2, 1, 3).contiguous()
         K = K.permute(0, 2, 1, 3).contiguous()
