@@ -29,9 +29,7 @@ template <int D>
 struct Globals
 {
     global_layout<D> Qg, Kg, Vg, Og;
-#ifdef KITTENS_TIMINGS
     gl<int, 1, -1, -1, 64> timings;
-#endif
 };
 
 __device__ int get_smid(void)
@@ -176,8 +174,8 @@ void flash_attn_func(bf16 *query, bf16 *key, bf16 *value, bf16 *output, int batc
     global_layout<HEAD_DIM> Kg(key, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Vg(value, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Og(output, batch_size, seq_len, num_heads, nullptr);
-    gl<int, 1, -1, -1, 64> timings_gl(timings, 1, 128, 1, nullptr);
-    Globals<HEAD_DIM> globals{Qg, Kg, Vg, Og};
+    gl<int, 1, -1, -1, 64> timings_gl(timings, nullptr, 128, 1, nullptr);
+    Globals<HEAD_DIM> globals{Qg, Kg, Vg, Og, timings_gl};
 
     dim3 grid(seq_len / (qkvo_tile<HEAD_DIM>::rows * NUM_WORKERS), num_heads, batch_size);
 

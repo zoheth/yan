@@ -11,7 +11,8 @@ def construct_run(num_heads: int, seq_len: int, head_dim: int):
     K = torch.randn(batch_size, seq_len, num_heads, head_dim, device='cuda', dtype=torch.bfloat16)
     V = torch.randn(batch_size, seq_len, num_heads, head_dim, device='cuda', dtype=torch.bfloat16)
     Output = torch.zeros(batch_size, seq_len, num_heads, head_dim, device='cuda', dtype=torch.bfloat16)
-    flash_attn_tk(Q, K, V, Output)
+    timings = torch.zeros([128, 64], device="cuda", dtype=torch.int32)
+    flash_attn_tk(Q, K, V, Output, timings)
 
     # expected_output = flash_attn_func(Q, K, V, causal=True)
     expected_output = flash_attn_func(Q, K, V, causal=False)
@@ -32,6 +33,6 @@ def test_flash_attn():
 
 if __name__ == "__main__":
     yan.jit_kernels.flash_attn_tk_accuracy_test()
-    test_flash_attn()
+    # test_flash_attn()
 
     

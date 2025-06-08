@@ -180,3 +180,4 @@ yan/include/cutlass
 yan/include/tk
 
 *.ncu-rep
+*.png

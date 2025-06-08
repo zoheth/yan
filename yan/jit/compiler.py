@@ -156,7 +156,7 @@ def build(name: str, arg_defs: tuple, code: str) -> Runtime:
     
     # Base compiler flags
     common_flags = ['-std=c++20', '-O3', '--expt-relaxed-constexpr', '--expt-extended-lambda',
-                   '-gencode=arch=compute_89,code=sm_89',
+                   '-gencode=arch=compute_80,code=sm_80',
                    '--use_fast_math']
     
     # Platform-specific flags
