@@ -181,3 +181,5 @@ yan/include/tk
 
 *.ncu-rep
 *.png
+
+.clangd

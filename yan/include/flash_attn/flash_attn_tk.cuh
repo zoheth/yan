@@ -170,6 +170,21 @@ __launch_bounds__(NUM_WORKERS *WARP_THREADS, 1)
 template <int HEAD_DIM>
 void flash_attn_func(bf16 *query, bf16 *key, bf16 *value, bf16 *output, int batch_size, int num_heads, int seq_len, cudaStream_t stream, int* timings)
 {
+
+    int deviceCount;
+    cudaGetDeviceCount(&deviceCount);
+
+    for (int dev = 0; dev < 2; ++dev) {
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, dev);
+
+        std::cout << "--- Device " << dev << ": " << deviceProp.name << " ---" << std::endl;
+        std::cout << "GPU Clock Rate: " << deviceProp.clockRate / 1000 << " MHz" << std::endl;
+        std::cout << "Memory Clock Rate: " << deviceProp.memoryClockRate / 1000 << " MHz" << std::endl;
+        std::cout << "Memory Bus Width: " << deviceProp.memoryBusWidth << " bits" << std::endl;
+        std::cout << std::endl;
+    }
+    
     global_layout<HEAD_DIM> Qg(query, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Kg(key, batch_size, seq_len, num_heads, nullptr);
     global_layout<HEAD_DIM> Vg(value, batch_size, seq_len, num_heads, nullptr);
