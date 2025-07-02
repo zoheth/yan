@@ -54,5 +54,5 @@ struct Scheduler {
         }
     }
 
-    
+    __device__ 
 };
