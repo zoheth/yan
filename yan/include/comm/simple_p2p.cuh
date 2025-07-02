@@ -35,22 +35,17 @@ void simple_p2p(float* d_input, float* d_output, size_t n)
     int dev1 = 1;
 
     checkCuda(cudaSetDevice(dev0));
-    int canAccessPeer = 0;
-    checkCuda(cudaDeviceCanAccessPeer(&canAccessPeer, dev0, dev1));
-    if (canAccessPeer)
-    {
-        std::cout << "GPU " << dev0 << " can access GPU " << dev1 << "'s memory." << std::endl;
-        checkCuda(cudaDeviceEnablePeerAccess(dev1, 0)); // 标志位为0，是保留的
-        std::cout << "Enabled P2P access from GPU " << dev0 << " to GPU " << dev1 << std::endl;
-    } else
-    {
-        std::cerr << "Error: P2P access between GPU " << dev0 << " and " << dev1 << " is not supported." << std::endl;
-        return;
-    }
+    int can_access_peer_0_1, can_access_peer_1_0;
+    checkCuda(cudaDeviceCanAccessPeer(&can_access_peer_0_1, dev0, dev1));
+    checkCuda(cudaDeviceCanAccessPeer(&can_access_peer_1_0, dev1, dev0));
+
+    cudaSetDevice(dev0);
+    // cudaDeviceEnablePeerAccess(dev1, 0);
+
+    cudaSetDevice(dev1);
+    cudaDeviceEnablePeerAccess(dev0, 0);
 
     const size_t dataSize = n * sizeof(float);
-
-
 
     checkCuda(cudaSetDevice(dev1));
     cudaStream_t stream;

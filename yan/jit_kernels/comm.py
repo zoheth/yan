@@ -20,6 +20,7 @@ def simple_p2p(x: torch.Tensor, y: torch.Tensor) -> None:
     runtime = jit_tuner.compile_and_tune(
         name='simple_p2p',
         space=(),
+        keys={},
         includes=includes,
         arg_defs=(('X', torch.float), ('Y', torch.float), ('N', int)),
         template=template,
@@ -40,7 +41,8 @@ def accuracy_test():
         y = torch.zeros(N, dtype=torch.float, device='cuda:1')
         
         y_ref = torch.ones_like(y, device='cuda:1')
-        y_ref = y_ref * 2
+        y_ref = x.to('cuda:1') * 2
+        
         simple_p2p(x, y)
         
         compare_tensors(y, y_ref, rtol=1e-5, atol=1e-6)

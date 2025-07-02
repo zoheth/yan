@@ -13,6 +13,7 @@ jit_include_dir = (
     "yan/include/softmax",
     "yan/include/flash_attn",
     "yan/include/tirplane",
+    "yan/include/comm"
 )
 third_party_include_dirs = (
     "third-party/cutlass/include/cute",
@@ -101,6 +102,7 @@ if __name__ == "__main__":
                 "include/softmax/**/*",
                 "include/flash_attn/**/*",
                 "include/tirplane/**/*",
+                "include/comm/**/*",
             ]
         },
         cmdclass={

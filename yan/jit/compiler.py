@@ -6,6 +6,7 @@ import subprocess
 import uuid
 import platform
 import shutil
+import torch
 from torch.utils.cpp_extension import CUDA_HOME
 from typing import Tuple
 
@@ -156,8 +157,26 @@ def build(name: str, arg_defs: tuple, code: str) -> Runtime:
     
     # Base compiler flags
     common_flags = ['-std=c++20', '-O3', '--expt-relaxed-constexpr', '--expt-extended-lambda',
-                   '-gencode=arch=compute_80,code=sm_80',
                    '--use_fast_math']
+
+    major, minor = torch.cuda.get_device_capability()
+    arch_code = f"{major}{minor}"
+    
+    # Define a mapping from arch_code to the gencode flag
+    arch_map = {
+        '80': '-gencode=arch=compute_80,code=sm_80',
+        '90': '-gencode=arch=compute_90a,code=sm_90a',
+        '86': '-gencode=arch=compute_86,code=sm_86',
+        '89': '-gencode=arch=compute_89,code=sm_89', # For Ada Lovelace
+    }
+    
+    if arch_code in arch_map:
+        print(f"Detected local GPU with architecture sm_{arch_code}, adding specific gencode flag.")
+        common_flags.append(arch_map[arch_code])
+    else:
+        print(f"Warning: Unsupported GPU architecture sm_{arch_code} detected. Falling back to a default set.")
+        # Fallback to a default or raise an error
+        common_flags.append('gencode=arch=compute_80,code=sm_80') # Default to Ampere
     
     # Platform-specific flags
     if IS_WINDOWS:

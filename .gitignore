@@ -180,6 +180,7 @@ yan/include/cutlass
 yan/include/tk
 
 *.ncu-rep
+*.nsys-rep
 *.png
 
 .clangd
