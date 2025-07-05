@@ -3,14 +3,7 @@
 #include <iostream>
 #include <vector>
 
-inline void checkCuda(cudaError_t err)
-{
-    if (err != cudaSuccess)
-    {
-        printf("%s\n", cudaGetErrorName(err));
-        throw std::runtime_error(cudaGetErrorName(err));
-    }
-}
+#include "utils.cuh"
 
 __global__ void p2p_access_kernel(const float* pSrc, float* pDst, size_t n)
 {
