@@ -21,7 +21,9 @@ find_package(NVSHMEM REQUIRED HINTS ${NVSHMEM_PREFIX}/cmake/nvshmem)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DENABLE_FAST_DEBUG -O3 --ptxas-options=--verbose,--register-usage-level=10,--warn-on-local-memory-usage")
 
-add_executable(test ring_allreduce.cu)
+include_directories(${CMAKE_SOURCE_DIR}/../include)
+
+add_executable(test gemm_allreduce.cu)
 set_property(TARGET test PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_host)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_device)
