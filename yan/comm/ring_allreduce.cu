@@ -1,8 +1,5 @@
-#include <__clang_cuda_builtin_vars.h>
 #include <bits/getopt_core.h>
 #include <cassert>
-#include <host/nvshmem_api.h>
-#include <host/nvshmemx_coll_api.h>
 #include <iostream>
 #include <nvshmem.h>
 #include <nvshmemx.h>
@@ -114,29 +111,29 @@ __global__ void ring_allreduce_kernel(int *dst, const int *src, size_t n_reduce,
         {
             nvshmem_int_put_signal_nbi(dst, (mype == 0) ? src : dst, chunk_elems,
                                        signal, 1, NVSHMEM_SIGNAL_ADD, peer);
+        }
+        src = src + chunk_elems;
+        dst = dst + chunk_elems;
+    }
 
-            src = src + chunk_elems;
+    dst = dst - num_chunks * chunk_elems;
+    if (thread_idx == 0)
+    {
+        for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx)
+        {
+            if (mype < n_pes - 1)
+            {
+                nvshmem_signal_wait_until(signal, NVSHMEM_CMP_GE,
+                                          (mype == 0) ? chunk_idx + 1 : num_chunks + chunk_idx + 1);
+            }
+            if (mype < n_pes - 2)
+            {
+                nvshmem_int_put_signal_nbi(dst, dst, chunk_elems,
+                                           signal, 1, NVSHMEM_SIGNAL_ADD, peer);
+            }
             dst = dst + chunk_elems;
         }
-
-        dst = dst - num_chunks * chunk_elems;
-        if (thread_idx == 0)
-        {
-            for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx)
-            {
-                if (mype < n_pes - 1)
-                {
-                    nvshmem_signal_wait_until(signal, NVSHMEM_CMP_GE,
-                                              (mype == 0) ? chunk_idx + 1 : num_chunks + chunk_idx + 1);
-                }
-                if (mype < n_pes - 2)
-                {
-                    nvshmem_int_put_signal_nbi(dst, dst, chunk_elems, signal, 1, NVSHMEM_SIGNAL_ADD, peer);
-                }
-                dst = dst + chunk_elems;
-            }
-            *signal = 0;
-        }
+        *signal = 0;
     }
 }
 
@@ -193,11 +190,11 @@ int main(int argc, char *argv[])
     int          mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
     cudaStream_t stream;
     cudaEvent_t  start, stop;
-    CUDA_CHECK(cudaEventCreate(&start));
-    CUDA_CHECK(cudaEventCreate(&stop));
 
     CUDA_CHECK(cudaSetDevice(mype_node));
     CUDA_CHECK(cudaStreamCreate(&stream));
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
 
     size_t    max_ints = max_size / sizeof(int);
     int      *dst      = (int *)nvshmem_malloc(max_size);
