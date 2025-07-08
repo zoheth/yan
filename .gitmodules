@@ -4,3 +4,6 @@
 [submodule "third-party/ThunderKittens"]
 	path = third-party/ThunderKittens
 	url = https://github.com/HazyResearch/ThunderKittens
+[submodule "third-party/flashinfer"]
+	path = third-party/flashinfer
+	url = https://github.com/flashinfer-ai/flashinfer.git

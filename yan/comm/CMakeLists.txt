@@ -21,7 +21,9 @@ find_package(NVSHMEM REQUIRED HINTS ${NVSHMEM_PREFIX}/cmake/nvshmem)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DENABLE_FAST_DEBUG -O3 --ptxas-options=--verbose,--register-usage-level=10,--warn-on-local-memory-usage")
 
-include_directories(${CMAKE_SOURCE_DIR}/../include)
+include_directories(${CMAKE_SOURCE_DIR}/../include
+${CMAKE_SOURCE_DIR}/../../third-party/cutlass/include
+${CMAKE_SOURCE_DIR}/../../third-party/cutlass/tools/util/include)
 
 add_executable(test gemm_allreduce.cu)
 set_property(TARGET test PROPERTY CUDA_SEPARABLE_COMPILATION ON)

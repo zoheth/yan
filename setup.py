@@ -18,6 +18,7 @@ jit_include_dir = (
 third_party_include_dirs = (
     "third-party/cutlass/include/cute",
     "third-party/cutlass/include/cutlass",
+    # "third-party/flashinfer/include/flashinfer",
 )
 
 
