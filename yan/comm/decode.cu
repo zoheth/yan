@@ -29,8 +29,8 @@
 
 using namespace flashinfer;
 
-using DTypeKV = float;
-using DTypeQ  = float;
+using DTypeKV = half;
+using DTypeQ  = half;
 using DTypeO  = DTypeQ;
 using IdType  = uint32_t;
 
@@ -78,7 +78,7 @@ void setup_workspace(
         size_t tmp_s_size             = kPaddedBatchSize * num_qo_heads * sizeof(float);
         float_workspace_size_in_bytes = tmp_v_size + tmp_s_size + 256;
     }
-    CUDA_CHECK(cudaMalloc(&float_workspace_buffer, float_workspace_size_in_bytes));
+    CUDA_CHECK(cudaMalloc(float_workspace_buffer, float_workspace_size_in_bytes));
 
     {
         size_t request_indices_size   = kPaddedBatchSize * sizeof(IdType);
@@ -91,25 +91,23 @@ void setup_workspace(
                                       kv_chunk_size_ptr_size + block_valid_mask_size + 256;
     }
 
-    CUDA_CHECK(cudaMalloc(&int_workspace_buffer, int_workspace_size_in_bytes));
-    CUDA_CHECK(cudaMallocHost(&page_locked_int_workspace_buffer, int_workspace_size_in_bytes));
+    CUDA_CHECK(cudaMalloc(int_workspace_buffer, int_workspace_size_in_bytes));
+    CUDA_CHECK(cudaMallocHost(page_locked_int_workspace_buffer, int_workspace_size_in_bytes));
 }
 
 int main()
 {
-    // int          mype, n_pes, mype_node;
-    // int          num_blocks;
-    // cudaStream_t stream;
-
-    // nvshmem_init();
-
-    // mype      = nvshmem_my_pe();
-    // n_pes     = nvshmem_n_pes();
-    // mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
-
-    // CUDA_CHECK(cudaSetDevice(mype_node));
-    // CUDA_CHECK(cudaStreamCreate(&stream));
+    int          mype, n_pes, mype_node;
+    int          num_blocks;
     cudaStream_t stream;
+
+    nvshmem_init();
+
+    mype      = nvshmem_my_pe();
+    n_pes     = nvshmem_n_pes();
+    mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
+
+    CUDA_CHECK(cudaSetDevice(mype_node));
     CUDA_CHECK(cudaStreamCreate(&stream));
 
     void  *float_workspace_buffer           = nullptr;
@@ -153,7 +151,8 @@ int main()
         page_locked_int_workspace_buffer, float_workspace_size_in_bytes,
         int_workspace_size_in_bytes, h_paged_kv_indptr.data());
 
-    CUDA_CHECK(cudaMalloc(&q, h_q.size() * sizeof(DTypeQ)));
+    // CUDA_CHECK(cudaMalloc(&q, h_q.size() * sizeof(DTypeQ)));
+    q = (DTypeQ *)nvshmem_malloc(h_q.size() * sizeof(DTypeQ));
     CUDA_CHECK(cudaMalloc(&o, h_q.size() * sizeof(DTypeO)));
     CUDA_CHECK(cudaMalloc(&paged_k_cache, h_paged_k_cache.size() * sizeof(DTypeKV)));
     CUDA_CHECK(cudaMalloc(&paged_v_cache, h_paged_v_cache.size() * sizeof(DTypeKV)));
@@ -209,7 +208,7 @@ int main()
     params.padded_batch_size = plan_info.padded_batch_size;
 
     cudaError_t status = flashinfer::BatchDecodeWithPagedKVCacheDispatched<
-        kHeadDim, PosEncodingMode::kNone, AttentionVariant>(params, tmp_v, tmp_s, true, 0);
+        kHeadDim, PosEncodingMode::kNone, AttentionVariant>(params, tmp_v, tmp_s, true, stream);
 
     if (status != cudaSuccess)
     {
@@ -219,7 +218,7 @@ int main()
     }
 
     // Cleanup
-    CUDA_CHECK(cudaFree(q));
+    nvshmem_free(q);
     CUDA_CHECK(cudaFree(o));
     CUDA_CHECK(cudaFree(paged_k_cache));
     CUDA_CHECK(cudaFree(paged_v_cache));
@@ -230,6 +229,6 @@ int main()
     CUDA_CHECK(cudaFree(int_workspace_buffer));
     CUDA_CHECK(cudaFreeHost(page_locked_int_workspace_buffer));
     CUDA_CHECK(cudaStreamDestroy(stream));
-    // nvshmem_finalize();
+    nvshmem_finalize();
     return 0;
 }
