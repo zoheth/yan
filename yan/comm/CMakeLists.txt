@@ -23,9 +23,10 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DENABLE_FAST_DEBUG -O3 --ptxas-option
 
 include_directories(${CMAKE_SOURCE_DIR}/../include
 ${CMAKE_SOURCE_DIR}/../../third-party/cutlass/include
-${CMAKE_SOURCE_DIR}/../../third-party/cutlass/tools/util/include)
+${CMAKE_SOURCE_DIR}/../../third-party/cutlass/tools/util/include
+${CMAKE_SOURCE_DIR}/../../third-party/flashinfer/include)
 
-add_executable(test gemm_allreduce.cu)
+add_executable(test decode.cu)
 set_property(TARGET test PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_host)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_device)
