@@ -36,7 +36,7 @@ struct NvshmemLaunchPolicy
 };
 
 template <uint32_t HEAD_DIM, flashinfer::PosEncodingMode POS_ENCODING_MODE, typename AttentionVariant,
-          typename Params, typename LaunchPolicy>
+          typename LaunchPolicy, typename Params>
 cudaError_t BatchDecodeWithPagedKVCacheDispatched(Params params, typename Params::DTypeO *tmp_v,
                                                   float *tmp_s, bool enable_pdl,
                                                   cudaStream_t stream)

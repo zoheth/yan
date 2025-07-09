@@ -4,6 +4,7 @@
 #include <vector>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <nccl.h>
 
 /**
  * Panic wrapper for unwinding CUTLASS errors
@@ -32,6 +33,15 @@
             exit(EXIT_FAILURE);                                               \
         }                                                                     \
     }
+
+#define NCCL_CHECK(call) do { \
+  ncclResult_t r = call; \
+  if (r != ncclSuccess) { \
+    std::cerr << "NCCL Error at " << __FILE__ << ":" << __LINE__ \
+              << " - " << ncclGetErrorString(r) << std::endl; \
+    exit(EXIT_FAILURE); \
+  } \
+} while (0)
 
 inline void checkCuda(cudaError_t err)
 {

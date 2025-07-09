@@ -1,16 +1,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <numeric>
+#include <optional>
+#include <random>
+#include <thread>
+
 #include <flashinfer/attention/decode.cuh>
 #include <flashinfer/attention/default_decode_params.cuh>
 #include <flashinfer/attention/scheduler.cuh>
 #include <flashinfer/attention/variants.cuh>
 #include <flashinfer/pos_enc.cuh>
 #include <flashinfer/utils.cuh>
-#include <numeric>
-#include <optional>
-#include <random>
-
+#include <nccl.h>
 #include <nvshmem.h>
 #include <nvshmemx.h>
 
@@ -87,19 +89,16 @@ void setup_workspace(
     CUDA_CHECK(cudaMallocHost(page_locked_int_workspace_buffer, int_workspace_size_in_bytes));
 }
 
-int main()
+void decode_with_kvcache(int rank, int world_size, ncclUniqueId id)
 {
-    int          mype, n_pes, mype_node;
-    int          num_blocks;
+    CUDA_CHECK(cudaSetDevice(rank));
+    ncclComm_t comm;
+    NCCL_CHECK(ncclCommInitRank(&comm, world_size, id, rank));
+
+    int send_rank = rank + 1;
+    int recv_rank = rank - 1;
+
     cudaStream_t stream;
-
-    nvshmem_init();
-
-    mype      = nvshmem_my_pe();
-    n_pes     = nvshmem_n_pes();
-    mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
-
-    CUDA_CHECK(cudaSetDevice(mype_node));
     CUDA_CHECK(cudaStreamCreate(&stream));
 
     void  *float_workspace_buffer           = nullptr;
@@ -203,43 +202,80 @@ int main()
     params.padded_batch_size = plan_info.padded_batch_size;
 
     auto run_kernel = [&]() {
-        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         checkCuda(cudaStreamSynchronize(stream));
+
         std::swap(params.q, params.o);
-        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         checkCuda(cudaStreamSynchronize(stream));
+
         std::swap(params.q, params.o);
-        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         checkCuda(cudaStreamSynchronize(stream));
+
         std::swap(params.q, params.o);
-        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         checkCuda(cudaStreamSynchronize(stream));
     };
 
-    run_kernel();
-    std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
-    checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
-    print_raw_tensor(h_o);
-
-    for (int32_t i = 0; i < 10; i++)
+    auto run_nccl_kernel = [&]() {
+        if(rank != 0)
+        {
+            NCCL_CHECK(ncclRecv(params.q, batch_size * num_qo_heads * kHeadDim, ncclHalf, recv_rank, comm, stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+        }
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        if(rank != world_size - 1)
+        {
+            NCCL_CHECK(ncclSend(params.o, batch_size * num_qo_heads * kHeadDim, ncclHalf, send_rank, comm, stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+        }
+    };
+    if(false)
     {
         run_kernel();
+        std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
+        checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
+        print_raw_tensor(h_o);
+    }
+    else
+    {
+        run_nccl_kernel();
+        if(rank == world_size - 1)
+        {
+            std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
+            checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
+            print_raw_tensor(h_o);
+        }
     }
 
+    if(false)
     {
-        int      iterations = 20;
-        GpuTimer timer;
-        timer.start();
-        for (int iter = 0; iter < 20; ++iter)
+        for (int32_t i = 0; i < 10; i++)
         {
             run_kernel();
         }
-        timer.stop();
 
-        float  elapsed_ms     = timer.elapsed_millis();
-        double avg_runtime_ms = double(elapsed_ms) / double(iterations);
+        {
+            int      iterations = 20;
+            GpuTimer timer;
+            timer.start();
+            for (int iter = 0; iter < 20; ++iter)
+            {
+                run_kernel();
+            }
+            timer.stop();
 
-        std::cout << "  Avg runtime: " << avg_runtime_ms << " ms" << std::endl;
+            float  elapsed_ms     = timer.elapsed_millis();
+            double avg_runtime_ms = double(elapsed_ms) / double(iterations);
+
+            std::cout << "  Avg runtime: " << avg_runtime_ms << " ms" << std::endl;
+        }
     }
 
     // Cleanup
@@ -254,6 +290,34 @@ int main()
     CUDA_CHECK(cudaFree(int_workspace_buffer));
     CUDA_CHECK(cudaFreeHost(page_locked_int_workspace_buffer));
     CUDA_CHECK(cudaStreamDestroy(stream));
+}
+
+int main()
+{
+    int          mype, n_pes, mype_node;
+    int          num_blocks;
+
+    nvshmem_init();
+
+    mype      = nvshmem_my_pe();
+    n_pes     = nvshmem_n_pes();
+    mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
+
+    int world_size = 4;
+    ncclUniqueId id;
+    NCCL_CHECK(ncclGetUniqueId(&id));
+   
+    // decode_with_kvcache(mype_node, world_size, id);
+    std::thread t0(decode_with_kvcache, 0, world_size, id);
+    std::thread t1(decode_with_kvcache, 1, world_size, id);
+    std::thread t2(decode_with_kvcache, 2, world_size, id);
+    std::thread t3(decode_with_kvcache, 3, world_size, id);
+
+    t0.join();
+    t1.join();
+    t2.join();
+    t3.join();
+    
     nvshmem_finalize();
     return 0;
 }
