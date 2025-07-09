@@ -14,6 +14,7 @@
 #include <nvshmem.h>
 #include <nvshmemx.h>
 
+#include "decode_launch.cuh"
 #include "helper.h"
 
 #define HEAD_DIM_QKV__ 128
@@ -214,8 +215,8 @@ int main()
     params.padded_batch_size = plan_info.padded_batch_size;
 
     auto run_kernel = [&]() {
-        cudaError_t status = flashinfer::BatchDecodeWithPagedKVCacheDispatched<
-            kHeadDim, PosEncodingMode::kNone, AttentionVariant>(params, tmp_v, tmp_s, true, stream);
+        cudaError_t status = BatchDecodeWithPagedKVCacheDispatched<
+            kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, CudaLaunchPolicy>(params, tmp_v, tmp_s, true, stream);
 
         if (status != cudaSuccess)
         {
