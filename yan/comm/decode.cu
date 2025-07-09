@@ -9,6 +9,7 @@
 #include <flashinfer/utils.cuh>
 #include <numeric>
 #include <optional>
+#include <random>
 
 #include <nvshmem.h>
 #include <nvshmemx.h>
@@ -47,8 +48,8 @@ QKVLayout     kv_layout             = flashinfer::QKVLayout::kHND;
 int64_t       batch_size            = 4;
 int64_t       num_qo_heads          = 8;
 int64_t       num_kv_heads          = 8;
-int64_t       page_size             = 16;
-const int64_t max_num_pages_per_seq = 4;
+int64_t       page_size             = 64;
+const int64_t max_num_pages_per_seq = 320;
 const int64_t total_pages           = batch_size * max_num_pages_per_seq;
 
 DecodePlanInfo plan(const cudaStream_t stream, void *float_workspace_buffer, void *int_workspace_buffer, void *page_locked_int_workspace_buffer,
@@ -77,15 +78,15 @@ void setup_workspace(
     size_t &int_workspace_size_in_bytes)
 {
     {
-        size_t tmp_v_size             = kPaddedBatchSize * num_qo_heads * kHeadDim * sizeof(float);
-        size_t tmp_s_size             = kPaddedBatchSize * num_qo_heads * sizeof(float);
+        size_t tmp_v_size             = total_pages * num_qo_heads * kHeadDim * sizeof(float);
+        size_t tmp_s_size             = total_pages * num_qo_heads * sizeof(float);
         float_workspace_size_in_bytes = tmp_v_size + tmp_s_size + 256;
     }
     CUDA_CHECK(cudaMalloc(float_workspace_buffer, float_workspace_size_in_bytes));
 
     {
         size_t request_indices_size   = kPaddedBatchSize * sizeof(IdType);
-        size_t kv_tile_indices_size   = kPaddedBatchSize * sizeof(IdType);
+        size_t kv_tile_indices_size   = total_pages * sizeof(IdType);
         size_t o_indptr_size          = (batch_size + 1) * sizeof(IdType);
         size_t kv_chunk_size_ptr_size = sizeof(IdType);
         size_t block_valid_mask_size  = kPaddedBatchSize * sizeof(bool);
@@ -134,20 +135,22 @@ int main()
     std::vector<DTypeQ> h_q(batch_size * num_qo_heads * kHeadDim);
     for (size_t i = 0; i < h_q.size(); ++i)
         h_q[i] = static_cast<DTypeQ>(i % 11 * 0.1);
-
+        
     // h_paged_k/v_cache: [total_pages, num_kv_heads, page_size, HEAD_DIM_QK]
     std::vector<DTypeKV> h_paged_k_cache(total_pages * num_kv_heads * page_size * kHeadDim);
     std::vector<DTypeKV> h_paged_v_cache(total_pages * num_kv_heads * page_size * kHeadDim);
+    std::mt19937 gen(42);
+    std::uniform_real_distribution<float> distrib(-1.0f, 1.0f);
     for (size_t i = 0; i < h_paged_k_cache.size(); ++i)
     {
-        h_paged_k_cache[i] = static_cast<DTypeKV>(i % 13 * 0.1);
-        h_paged_v_cache[i] = static_cast<DTypeKV>(i % 17 * 0.1);
+        h_paged_k_cache[i] = static_cast<DTypeKV>(distrib(gen));
+        h_paged_v_cache[i] = static_cast<DTypeKV>(distrib(gen));
     }
 
-    std::vector<IdType> h_paged_kv_indptr = {0, 2, 5, 7, 9};
+    std::vector<IdType> h_paged_kv_indptr = {0, 300, 500, 780, 1100};
     std::vector<IdType> h_paged_kv_indices(h_paged_kv_indptr.back());
     std::iota(h_paged_kv_indices.begin(), h_paged_kv_indices.end(), 0);
-    std::vector<IdType> h_paged_kv_last_page_len = {4, 8, 16, 9};
+    std::vector<IdType> h_paged_kv_last_page_len = {40, 58, 64, 2};
 
     DecodePlanInfo plan_info = plan(
         stream, float_workspace_buffer, int_workspace_buffer,
