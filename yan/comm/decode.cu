@@ -136,11 +136,12 @@ int main()
     std::vector<DTypeQ> h_q(batch_size * num_qo_heads * kHeadDim);
     for (size_t i = 0; i < h_q.size(); ++i)
         h_q[i] = static_cast<DTypeQ>(i % 11 * 0.1);
-        
+
     // h_paged_k/v_cache: [total_pages, num_kv_heads, page_size, HEAD_DIM_QK]
     std::vector<DTypeKV> h_paged_k_cache(total_pages * num_kv_heads * page_size * kHeadDim);
     std::vector<DTypeKV> h_paged_v_cache(total_pages * num_kv_heads * page_size * kHeadDim);
-    std::mt19937 gen(42);
+
+    std::mt19937                          gen(42);
     std::uniform_real_distribution<float> distrib(-1.0f, 1.0f);
     for (size_t i = 0; i < h_paged_k_cache.size(); ++i)
     {
@@ -216,7 +217,7 @@ int main()
 
     auto run_kernel = [&]() {
         cudaError_t status = BatchDecodeWithPagedKVCacheDispatched<
-            kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, CudaLaunchPolicy>(params, tmp_v, tmp_s, true, stream);
+            kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream);
 
         if (status != cudaSuccess)
         {
