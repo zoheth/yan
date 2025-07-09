@@ -145,8 +145,8 @@ void decode_with_kvcache(int rank, int world_size, ncclUniqueId id)
         page_locked_int_workspace_buffer, float_workspace_size_in_bytes,
         int_workspace_size_in_bytes, h_paged_kv_indptr.data());
 
-    // CUDA_CHECK(cudaMalloc(&q, h_q.size() * sizeof(DTypeQ)));
-    q = (DTypeQ *)nvshmem_malloc(h_q.size() * sizeof(DTypeQ));
+    CUDA_CHECK(cudaMalloc(&q, h_q.size() * sizeof(DTypeQ)));
+    // q = (DTypeQ *)nvshmem_malloc(h_q.size() * sizeof(DTypeQ));
     CUDA_CHECK(cudaMalloc(&o, h_q.size() * sizeof(DTypeO)));
     CUDA_CHECK(cudaMalloc(&paged_k_cache, h_paged_k_cache.size() * sizeof(DTypeKV)));
     CUDA_CHECK(cudaMalloc(&paged_v_cache, h_paged_v_cache.size() * sizeof(DTypeKV)));
@@ -229,7 +229,7 @@ void decode_with_kvcache(int rank, int world_size, ncclUniqueId id)
             CUDA_CHECK(cudaStreamSynchronize(stream));
         }
         checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
-                                                        NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+                                                        CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         if(rank != world_size - 1)
         {
             NCCL_CHECK(ncclSend(params.o, batch_size * num_qo_heads * kHeadDim, ncclHalf, send_rank, comm, stream));
@@ -279,7 +279,8 @@ void decode_with_kvcache(int rank, int world_size, ncclUniqueId id)
     }
 
     // Cleanup
-    nvshmem_free(q);
+    // nvshmem_free(q);
+    CUDA_CHECK(cudaFree(q));
     CUDA_CHECK(cudaFree(o));
     CUDA_CHECK(cudaFree(paged_k_cache));
     CUDA_CHECK(cudaFree(paged_v_cache));
@@ -294,14 +295,14 @@ void decode_with_kvcache(int rank, int world_size, ncclUniqueId id)
 
 int main()
 {
-    int          mype, n_pes, mype_node;
-    int          num_blocks;
+    // int          mype, n_pes, mype_node;
+    // int          num_blocks;
 
-    nvshmem_init();
+    // nvshmem_init();
 
-    mype      = nvshmem_my_pe();
-    n_pes     = nvshmem_n_pes();
-    mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
+    // mype      = nvshmem_my_pe();
+    // n_pes     = nvshmem_n_pes();
+    // mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
 
     int world_size = 4;
     ncclUniqueId id;
@@ -318,6 +319,6 @@ int main()
     t2.join();
     t3.join();
     
-    nvshmem_finalize();
+    // nvshmem_finalize();
     return 0;
 }

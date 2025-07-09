@@ -34,3 +34,5 @@ target_include_directories(test PRIVATE
 set_property(TARGET test PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_host)
 target_link_libraries(test PRIVATE nvshmem::nvshmem_device)
+target_include_directories(test PRIVATE /usr/include)
+target_link_libraries(test PRIVATE /usr/lib64/libnccl.so)
