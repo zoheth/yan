@@ -9,8 +9,10 @@
 #include <numeric>
 #include <optional>
 
-#include "nvshmem.h"
-#include "nvshmemx.h"
+#include <nvshmem.h>
+#include <nvshmemx.h>
+
+#include "helper.h"
 
 #define HEAD_DIM_QKV__ 128
 
@@ -207,14 +209,42 @@ int main()
     }
     params.padded_batch_size = plan_info.padded_batch_size;
 
-    cudaError_t status = flashinfer::BatchDecodeWithPagedKVCacheDispatched<
-        kHeadDim, PosEncodingMode::kNone, AttentionVariant>(params, tmp_v, tmp_s, true, stream);
+    auto run_kernel = [&]() {
+        cudaError_t status = flashinfer::BatchDecodeWithPagedKVCacheDispatched<
+            kHeadDim, PosEncodingMode::kNone, AttentionVariant>(params, tmp_v, tmp_s, true, stream);
 
-    if (status != cudaSuccess)
+        if (status != cudaSuccess)
+        {
+            fprintf(stderr, "BatchDecodeWithPagedKVCache failed with error %s\n",
+                    cudaGetErrorString(status));
+            return -1;
+        }
+    };
+
+    run_kernel();
+    std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
+    CUDA_CHECK(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
+    print_raw_tensor(h_o);
+
+    for (int32_t i = 0; i < 10; i++)
     {
-        fprintf(stderr, "BatchDecodeWithPagedKVCache failed with error %s\n",
-                cudaGetErrorString(status));
-        return -1;
+        run_kernel();
+    }
+
+    {
+        int      iterations = 20;
+        GpuTimer timer;
+        timer.start();
+        for (int iter = 0; iter < 20; ++iter)
+        {
+            run_kernel();
+        }
+        timer.stop();
+
+        float  elapsed_ms     = timer.elapsed_millis();
+        double avg_runtime_ms = double(elapsed_ms) / double(iterations);
+
+        std::cout << "  Avg runtime: " << avg_runtime_ms << " ms" << std::endl;
     }
 
     // Cleanup
