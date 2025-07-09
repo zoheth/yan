@@ -1,8 +1,9 @@
 #pragma once
 
-#include "cuda_runtime.h"
 #include <iostream>
 #include <vector>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 /**
  * Panic wrapper for unwinding CUTLASS errors
@@ -78,67 +79,51 @@ struct GpuTimer
     }
 };
 
+
 template <typename T>
 void print_raw_tensor(const T *data, size_t size, size_t width = 8)
 {
-    const size_t head_rows = 3;
-    const size_t tail_rows = 3;
-
-    const size_t head_elements = head_rows * width;
-    const size_t tail_elements = tail_rows * width;
-
-    if (size <= head_elements + tail_elements)
-    {
-        for (size_t i = 0; i < size; ++i)
-        {
-            std::cout << data[i] << " ";
-            if ((i + 1) % width == 0)
-            {
+    auto print_range = [=](size_t start, size_t end) {
+        for (size_t i = start; i < end; ++i) {
+            if constexpr (std::is_same_v<T, half>) {
+                std::cout << __half2float(data[i]) << " ";
+            } else {
+                std::cout << data[i] << " ";
+            }
+            if ((i + 1) % width == 0 && (i + 1) < size) {
                 std::cout << std::endl;
             }
         }
-        if (size % width != 0)
-        {
-            std::cout << std::endl;
-        }
+    };
+
+    const size_t head_rows = 3;
+    const size_t tail_rows = 3;
+    const size_t head_elements = std::min(size, head_rows * width);
+    const size_t tail_elements = std::min(size, tail_rows * width);
+
+    if (size <= head_elements + tail_elements) {
+        print_range(0, size);
+        std::cout << std::endl;
         return;
     }
 
-    for (size_t i = 0; i < head_elements; ++i)
-    {
-        std::cout << data[i] << " ";
-        if ((i + 1) % width == 0)
-        {
-            std::cout << std::endl;
-        }
-    }
+    print_range(0, head_elements);
+    std::cout << std::endl << "..." << std::endl;
 
-    std::cout << "..." << std::endl;
-
-    const size_t middle_rows        = 2;
-    const size_t middle_elements    = middle_rows * width;
-    const size_t middle_start_index = (size - middle_elements) / 2;
-
-    for (size_t i = 0; i < middle_elements; ++i)
-    {
-        std::cout << data[middle_start_index + i] << " ";
-        if ((i + 1) % width == 0)
-        {
-            std::cout << std::endl;
-        }
-    }
-
-    std::cout << "..." << std::endl;
-
+    const size_t middle_rows = 2;
+    const size_t middle_elements = middle_rows * width;
     const size_t tail_start_index = size - tail_elements;
-    for (size_t i = 0; i < tail_elements; ++i)
-    {
-        std::cout << data[tail_start_index + i] << " ";
-        if ((i + 1) % width == 0)
-        {
-            std::cout << std::endl;
-        }
+    const size_t gap_start_index = head_elements;
+    const size_t gap_size = tail_start_index - gap_start_index;
+
+    if (gap_size > middle_elements) {
+        const size_t middle_start_index = gap_start_index + (gap_size - middle_elements) / 2;
+        print_range(middle_start_index, middle_start_index + middle_elements);
+        std::cout << std::endl << "..." << std::endl;
     }
+
+    print_range(tail_start_index, size);
+    std::cout << std::endl;
 }
 
 template <typename T>
