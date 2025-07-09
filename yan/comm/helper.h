@@ -33,6 +33,15 @@
         }                                                                     \
     }
 
+inline void checkCuda(cudaError_t err)
+{
+    if (err != cudaSuccess)
+    {
+        printf("%s\n", cudaGetErrorName(err));
+        throw std::runtime_error(cudaGetErrorName(err));
+    }
+}
+
 /**
  * GPU timer for recording the elapsed time across kernel(s) launched in GPU stream
  */

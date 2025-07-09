@@ -19,19 +19,6 @@
 
 #define HEAD_DIM_QKV__ 128
 
-#undef CUDA_CHECK
-#define CUDA_CHECK(stmt)                                                          \
-    do                                                                            \
-    {                                                                             \
-        cudaError_t result = (stmt);                                              \
-        if (cudaSuccess != result)                                                \
-        {                                                                         \
-            fprintf(stderr, "[%s:%d] cuda failed with %s \n", __FILE__, __LINE__, \
-                    cudaGetErrorString(result));                                  \
-            exit(-1);                                                             \
-        }                                                                         \
-    } while (0)
-
 using namespace flashinfer;
 
 using DTypeKV = half;
@@ -216,20 +203,22 @@ int main()
     params.padded_batch_size = plan_info.padded_batch_size;
 
     auto run_kernel = [&]() {
-        cudaError_t status = BatchDecodeWithPagedKVCacheDispatched<
-            kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream);
-
-        if (status != cudaSuccess)
-        {
-            fprintf(stderr, "BatchDecodeWithPagedKVCache failed with error %s\n",
-                    cudaGetErrorString(status));
-            exit(-1);
-        }
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(cudaStreamSynchronize(stream));
+        std::swap(params.q, params.o);
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(cudaStreamSynchronize(stream));
+        std::swap(params.q, params.o);
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(cudaStreamSynchronize(stream));
+        std::swap(params.q, params.o);
+        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant, Params, NvshmemLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+        checkCuda(cudaStreamSynchronize(stream));
     };
 
     run_kernel();
     std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
-    CUDA_CHECK(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
+    checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
     print_raw_tensor(h_o);
 
     for (int32_t i = 0; i < 10; i++)
