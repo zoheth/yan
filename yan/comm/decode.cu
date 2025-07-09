@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <flashinfer/attention/decode.cuh>
 #include <flashinfer/attention/default_decode_params.cuh>
 #include <flashinfer/attention/scheduler.cuh>
@@ -217,7 +218,7 @@ int main()
         {
             fprintf(stderr, "BatchDecodeWithPagedKVCache failed with error %s\n",
                     cudaGetErrorString(status));
-            return -1;
+            exit(-1);
         }
     };
 
