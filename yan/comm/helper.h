@@ -129,5 +129,5 @@ void print_raw_tensor(const T *data, size_t size, size_t width = 8)
 template <typename T>
 void print_raw_tensor(const std::vector<T> &data, size_t width = 8)
 {
-    print_raw_tensor(data->data(), data->size(), width);
+    print_raw_tensor(data.data(), data.size(), width);
 }
