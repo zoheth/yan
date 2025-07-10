@@ -34,14 +34,15 @@ using AttentionVariant = DefaultAttention<false, false, false, false>;
 constexpr int      kHeadDim         = HEAD_DIM_QKV__;
 constexpr uint32_t kPaddedBatchSize = 32;
 
-QKVLayout     kv_layout             = flashinfer::QKVLayout::kHND;
-int64_t       batch_size            = 4;
-int64_t       num_qo_heads          = 8;
-int64_t       num_kv_heads          = 8;
-int64_t       page_size             = 64;
-const int64_t max_num_pages_per_seq = 320;
-const int64_t total_pages           = batch_size * max_num_pages_per_seq;
-std::vector<IdType> h_paged_kv_indptr = {0, 300, 500, 780, 1100};
+QKVLayout           kv_layout             = flashinfer::QKVLayout::kHND;
+int64_t             batch_size            = 4;
+int64_t             num_qo_heads          = 8;
+int64_t             num_kv_heads          = 8;
+int64_t             page_size             = 64;
+const int64_t       max_num_pages_per_seq = 320;
+const int64_t       total_pages           = batch_size * max_num_pages_per_seq;
+std::vector<IdType> h_paged_kv_indptr     = {0, 300, 500, 780, 1100};
+size_t              qo_data_size          = batch_size * num_qo_heads * kHeadDim;
 
 struct CudaExecutionPolicy
 {
@@ -49,22 +50,34 @@ struct CudaExecutionPolicy
         Params &params, DTypeO *tmp_v, float *tmp_s, cudaStream_t stream,
         int rank, int world_size, ncclComm_t comm = nullptr)
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 3; ++i)
         {
             checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
                                                             CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
             checkCuda(cudaStreamSynchronize(stream));
 
-            if (i < 3)
-            {
-                std::swap(params.q, params.o);
-            }
+            params.q += qo_data_size;
+            params.o += qo_data_size;
         }
+        params.q -= qo_data_size * 3;
+        params.o -= qo_data_size * 3;
+        std::swap(params.q, params.o);
+        for (int i = 0; i < 3; ++i)
+        {
+            checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                            CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+            checkCuda(cudaStreamSynchronize(stream));
+
+            params.q += qo_data_size;
+            params.o += qo_data_size;
+        }
+        params.q -= qo_data_size * 3;
+        params.o -= qo_data_size * 3;
     }
 
     static void check(DTypeO *o, int rank, int world_size)
     {
-        std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
+        std::vector<DTypeO> h_o(qo_data_size * 3);
         checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
         print_raw_tensor(h_o);
     }
@@ -76,28 +89,46 @@ struct NcclExecutionPolicy
         Params &params, DTypeO *tmp_v, float *tmp_s, cudaStream_t stream,
         int rank, int world_size, ncclComm_t comm)
     {
-        int send_rank = rank + 1;
-        int recv_rank = rank - 1;
-
         if (rank != 0)
         {
-            NCCL_CHECK(ncclRecv(params.q, batch_size * num_qo_heads * kHeadDim, ncclHalf, recv_rank, comm, stream));
-            CUDA_CHECK(cudaStreamSynchronize(stream));
+            checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                            CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         }
-        checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
-                                                        CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
-        if (rank != world_size - 1)
+
+        ncclGroupStart();
+        if (rank == 0)
         {
-            NCCL_CHECK(ncclSend(params.o, batch_size * num_qo_heads * kHeadDim, ncclHalf, send_rank, comm, stream));
+            for (int r = 1; r < world_size; ++r)
+            {
+                NCCL_CHECK(ncclRecv(params.q, qo_data_size, ncclHalf, r, comm, stream));
+                params.q += qo_data_size;
+            }
+            params.q -= qo_data_size * (world_size - 1);
         }
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+        NCCL_CHECK(ncclSend(params.o, qo_data_size, ncclHalf, 0, comm, stream));
+        ncclGroupEnd();
+
+        if (rank == 0)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
+                                                                CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
+                checkCuda(cudaStreamSynchronize(stream));
+
+                params.q += qo_data_size;
+                params.o += qo_data_size;
+            }
+            params.q -= qo_data_size * 3;
+            params.o -= qo_data_size * 3;
+        }
     }
 
     static void check(DTypeO *o, int rank, int world_size)
     {
-        if (rank == world_size - 1)
+        if (rank == 0)
         {
-            std::vector<DTypeO> h_o(batch_size * num_qo_heads * kHeadDim);
+            std::vector<DTypeO> h_o(qo_data_size * 3);
             checkCuda(cudaMemcpy(h_o.data(), o, h_o.size() * sizeof(DTypeO), cudaMemcpyDeviceToHost));
             print_raw_tensor(h_o);
         }
@@ -162,23 +193,23 @@ void setup_workspace(
     CUDA_CHECK(cudaMallocHost(page_locked_int_workspace_buffer, int_workspace_size_in_bytes));
 }
 
-void setup_test_data(DTypeQ** q, DTypeO** o, paged_kv_t<DTypeKV, IdType>& paged_kv, bool use_nvshmem_malloc)
+void setup_test_data(DTypeQ **q, DTypeO **o, paged_kv_t<DTypeKV, IdType> &paged_kv, int rank, bool use_nvshmem_malloc)
 {
 
     // DTypeKV *paged_k_cache; // [X, H, page_size, D]
     // DTypeKV *paged_v_cache; // [X, H, page_size, D]
-    paged_kv.num_heads = num_kv_heads;
-    paged_kv.page_size = page_size;
-    paged_kv.head_dim = kHeadDim;
-    paged_kv.batch_size = batch_size;
+    paged_kv.num_heads              = num_kv_heads;
+    paged_kv.page_size              = page_size;
+    paged_kv.head_dim               = kHeadDim;
+    paged_kv.batch_size             = batch_size;
     std::vector<int64_t> kv_strides = {num_kv_heads * page_size * kHeadDim,
                                        page_size * kHeadDim, kHeadDim};
 
     paged_kv.stride_page = kv_strides[0];
-    paged_kv.stride_n = kv_layout == QKVLayout::kHND ? kv_strides[2] : kv_strides[1];
-    paged_kv.stride_h = kv_layout == QKVLayout::kHND ? kv_strides[1] : kv_strides[2];
+    paged_kv.stride_n    = kv_layout == QKVLayout::kHND ? kv_strides[2] : kv_strides[1];
+    paged_kv.stride_h    = kv_layout == QKVLayout::kHND ? kv_strides[1] : kv_strides[2];
 
-    std::vector<DTypeQ> h_q(batch_size * num_qo_heads * kHeadDim);
+    std::vector<DTypeQ> h_q(qo_data_size);
     for (size_t i = 0; i < h_q.size(); ++i)
         h_q[i] = static_cast<DTypeQ>(i % 11 * 0.1);
 
@@ -198,15 +229,20 @@ void setup_test_data(DTypeQ** q, DTypeO** o, paged_kv_t<DTypeKV, IdType>& paged_
     std::iota(h_paged_kv_indices.begin(), h_paged_kv_indices.end(), 0);
     std::vector<IdType> h_paged_kv_last_page_len = {40, 58, 64, 2};
 
+    size_t qo_buffer_size = h_q.size() * sizeof(DTypeQ);
+    if (rank == 0)
+    {
+        qo_buffer_size *= 3;
+    }
 
     if (use_nvshmem_malloc)
     {
-        *q = (DTypeQ *)nvshmem_malloc(h_q.size() * sizeof(DTypeQ));
+        *q = (DTypeQ *)nvshmem_malloc(qo_buffer_size);
     } else
     {
-        CUDA_CHECK(cudaMalloc(q, h_q.size() * sizeof(DTypeQ)));
+        CUDA_CHECK(cudaMalloc(q, qo_buffer_size));
     }
-    CUDA_CHECK(cudaMalloc(o, h_q.size() * sizeof(DTypeO)));
+    CUDA_CHECK(cudaMalloc(o, qo_buffer_size));
     CUDA_CHECK(cudaMalloc(&paged_kv.k_data, h_paged_k_cache.size() * sizeof(DTypeKV)));
     CUDA_CHECK(cudaMalloc(&paged_kv.v_data, h_paged_v_cache.size() * sizeof(DTypeKV)));
     CUDA_CHECK(cudaMalloc(&paged_kv.indptr, h_paged_kv_indptr.size() * sizeof(IdType)));
@@ -252,7 +288,7 @@ void decode_with_kvcache(int rank, int world_size, ncclComm_t comm = nullptr)
     DTypeO *o;
 
     paged_kv_t<DTypeKV, IdType> paged_kv;
-    setup_test_data(&q, &o, paged_kv, use_nvshmem_malloc);
+    setup_test_data(&q, &o, paged_kv, rank, use_nvshmem_malloc);
 
     const int64_t q_stride_n = kHeadDim;
     const int64_t q_stride_h = kHeadDim;
