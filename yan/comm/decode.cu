@@ -167,6 +167,16 @@ void setup_test_data(DTypeQ** q, DTypeO** o, paged_kv_t<DTypeKV, IdType>& paged_
 
     // DTypeKV *paged_k_cache; // [X, H, page_size, D]
     // DTypeKV *paged_v_cache; // [X, H, page_size, D]
+    paged_kv.num_heads = num_kv_heads;
+    paged_kv.page_size = page_size;
+    paged_kv.head_dim = kHeadDim;
+    paged_kv.batch_size = batch_size;
+    std::vector<int64_t> kv_strides = {num_kv_heads * page_size * kHeadDim,
+                                       page_size * kHeadDim, kHeadDim};
+
+    paged_kv.stride_page = kv_strides[0];
+    paged_kv.stride_n = kv_layout == QKVLayout::kHND ? kv_strides[2] : kv_strides[1];
+    paged_kv.stride_h = kv_layout == QKVLayout::kHND ? kv_strides[1] : kv_strides[2];
 
     std::vector<DTypeQ> h_q(batch_size * num_qo_heads * kHeadDim);
     for (size_t i = 0; i < h_q.size(); ++i)
@@ -203,19 +213,12 @@ void setup_test_data(DTypeQ** q, DTypeO** o, paged_kv_t<DTypeKV, IdType>& paged_
     CUDA_CHECK(cudaMalloc(&paged_kv.indices, h_paged_kv_indices.size() * sizeof(IdType)));
     CUDA_CHECK(cudaMalloc(&paged_kv.last_page_len, h_paged_kv_last_page_len.size() * sizeof(IdType)));
 
-    CUDA_CHECK(cudaMemcpy(q, h_q.data(), h_q.size() * sizeof(DTypeQ), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(*q, h_q.data(), h_q.size() * sizeof(DTypeQ), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(paged_kv.k_data, h_paged_k_cache.data(), h_paged_k_cache.size() * sizeof(DTypeKV), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(paged_kv.v_data, h_paged_v_cache.data(), h_paged_v_cache.size() * sizeof(DTypeKV), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(paged_kv.indptr, h_paged_kv_indptr.data(), h_paged_kv_indptr.size() * sizeof(IdType), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(paged_kv.indices, h_paged_kv_indices.data(), h_paged_kv_indices.size() * sizeof(IdType), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(paged_kv.last_page_len, h_paged_kv_last_page_len.data(), h_paged_kv_last_page_len.size() * sizeof(IdType), cudaMemcpyHostToDevice));
-
-    std::vector<int64_t> kv_strides = {num_kv_heads * page_size * kHeadDim,
-                                       page_size * kHeadDim, kHeadDim};
-
-    paged_kv.stride_page = kv_strides[0];
-    paged_kv.stride_n = kv_layout == QKVLayout::kHND ? kv_strides[2] : kv_strides[1];
-    paged_kv.stride_h = kv_layout == QKVLayout::kHND ? kv_strides[1] : kv_strides[2];
 }
 
 template <typename ExecutionPolicy, bool PerfTest = false, bool CheckTest = true>
@@ -347,7 +350,7 @@ int main(int argc, char **argv)
     {
         std::cout << "Running in CUDA mode (single GPU)" << std::endl;
         // For CUDA, world_size is 1 and rank is 0. No comms needed.
-        decode_with_kvcache<CudaExecutionPolicy>(0, 1);
+        decode_with_kvcache<CudaExecutionPolicy, true>(0, 1);
     } else if (mode == "nccl")
     {
         std::cout << "Running in NCCL mode" << std::endl;
@@ -368,7 +371,7 @@ int main(int argc, char **argv)
         std::vector<std::thread> threads;
         for (int i = 0; i < world_size; ++i)
         {
-            threads.emplace_back(decode_with_kvcache<NcclExecutionPolicy>, i, world_size, comms[i]);
+            threads.emplace_back(decode_with_kvcache<NcclExecutionPolicy, true>, i, world_size, comms[i]);
         }
         for (auto &t : threads)
         {
