@@ -35,10 +35,10 @@
     }
 
 #define NCCL_CHECK(call) do { \
-  ncclResult_t r = call; \
-  if (r != ncclSuccess) { \
+  ncclResult_t error = call; \
+  if (error != ncclSuccess) { \
     std::cerr << "NCCL Error at " << __FILE__ << ":" << __LINE__ \
-              << " - " << ncclGetErrorString(r) << std::endl; \
+              << " - " << ncclGetErrorString(error) << std::endl; \
     exit(EXIT_FAILURE); \
   } \
 } while (0)

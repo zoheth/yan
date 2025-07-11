@@ -95,7 +95,7 @@ struct NcclExecutionPolicy
                                                             CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
         }
 
-        ncclGroupStart();
+        NCCL_CHECK(ncclGroupStart());
         if (rank == 0)
         {
             for (int r = 1; r < world_size; ++r)
@@ -104,9 +104,12 @@ struct NcclExecutionPolicy
                 params.q += qo_data_size;
             }
             params.q -= qo_data_size * (world_size - 1);
+        } else
+        {
+            NCCL_CHECK(ncclSend(params.o, qo_data_size, ncclHalf, 0, comm, stream));
         }
-        NCCL_CHECK(ncclSend(params.o, qo_data_size, ncclHalf, 0, comm, stream));
-        ncclGroupEnd();
+        NCCL_CHECK(ncclGroupEnd());
+        // checkCuda(cudaStreamSynchronize(stream));
 
         if (rank == 0)
         {
@@ -114,8 +117,6 @@ struct NcclExecutionPolicy
             {
                 checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
                                                                 CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
-                checkCuda(cudaStreamSynchronize(stream));
-
                 params.q += qo_data_size;
                 params.o += qo_data_size;
             }
@@ -264,9 +265,6 @@ void decode_with_kvcache(int rank, int world_size, ncclComm_t comm = nullptr)
 
     bool use_nvshmem_malloc = std::is_same<ExecutionPolicy, NvshmemExecutionPolicy>::value;
 
-    int send_rank = rank + 1;
-    int recv_rank = rank - 1;
-
     cudaStream_t stream;
     CUDA_CHECK(cudaStreamCreate(&stream));
 
@@ -348,7 +346,7 @@ void decode_with_kvcache(int rank, int world_size, ncclComm_t comm = nullptr)
             float  elapsed_ms     = timer.elapsed_millis();
             double avg_runtime_ms = double(elapsed_ms) / double(iterations);
 
-            std::cout << "  Avg runtime: " << avg_runtime_ms << " ms" << std::endl;
+            std::cout << rank << "  Avg runtime: " << avg_runtime_ms << " ms" << std::endl;
         }
     }
 
