@@ -1,8 +1,8 @@
-#include <__clang_cuda_runtime_wrapper.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <device_host_transport/nvshmem_common_transport.h>
+#include <device_host_transport/nvshmem_constants.h>
 #include <host/nvshmemx_api.h>
 #include <numeric>
 #include <optional>
@@ -149,33 +149,33 @@ struct NvshmemExecutionPolicy
     {
         static uint64_t* signals = (uint64_t *)nvshmem_calloc(2, sizeof(uint64_t));
         uint64_t* full = &signals[0];
-        uint64_t* can_produce = &signals[1];
+        uint64_t* dont_produce = &signals[1];
 
         if (rank != 0)
         {
             checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
                                                             CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
 
-            nvshmemx_signal_wait_until_on_stream(can_produce, NVSHMEM_CMP_GE, 1, stream);
-            nvshmemx_signal_op_on_stream(can_produce, 0, NVSHMEM_SIGNAL_SET, rank, stream);
-            nvshmemx_half_put_signal_nbi_on_stream(params.q + ((rank - 1) * qo_data_size), params.o, qo_data_size, full, 1, NVSHMEM_SIGNAL_ADD, 0, stream);
+            nvshmemx_signal_wait_until_on_stream(dont_produce, NVSHMEM_CMP_EQ, 0, stream);
+            nvshmemx_signal_op_on_stream(dont_produce, 1, NVSHMEM_SIGNAL_SET, rank, stream);
+            nvshmemx_half_put_signal_on_stream(params.q + ((rank - 1) * qo_data_size), params.o, qo_data_size, full, 1, NVSHMEM_SIGNAL_ADD, 0, stream);
         }
         if (rank == 0)
         {
             const int num_workers = world_size - 1;
             nvshmemx_signal_wait_until_on_stream(full, NVSHMEM_CMP_GE, num_workers, stream);
-            nvshmemx_signal_op_on_stream(full, 0, NVSHMEM_SIGNAL_SET, 0, stream);
 
-            for (int i = 0; i < 3; ++i)
+            for (int i = 0; i < num_workers; ++i)
             {
                 checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
                                                                 CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
                 params.q += qo_data_size;
                 params.o += qo_data_size;
             }
+            nvshmemx_signal_op_on_stream(full, 0, NVSHMEM_SIGNAL_SET, 0, stream);
             for (int r = 1; r < world_size; ++r)
             {
-                nvshmemx_signal_op_on_stream(can_produce, 1, NVSHMEM_SIGNAL_SET, r, stream);
+                nvshmemx_signal_op_on_stream(dont_produce, 0, NVSHMEM_SIGNAL_SET, r, stream);
             }
             params.q -= qo_data_size * num_workers;
             params.o -= qo_data_size * num_workers;
@@ -277,14 +277,14 @@ void setup_test_data(DTypeQ **q, DTypeO **o, paged_kv_t<DTypeKV, IdType> &paged_
     std::vector<IdType> h_paged_kv_last_page_len = {40, 58, 64, 2};
 
     size_t qo_buffer_size = h_q.size() * sizeof(DTypeQ);
-    if (!use_nvshmem_malloc && rank == 0)
+    if (rank == 0)
     {
         qo_buffer_size *= 3;
     }
 
     if (use_nvshmem_malloc)
     {
-        *q = (DTypeQ *)nvshmem_malloc(qo_buffer_size * 3);
+        *q = (DTypeQ *)nvshmem_malloc(h_q.size() * sizeof(DTypeQ) * 3);
     } else
     {
         CUDA_CHECK(cudaMalloc(q, qo_buffer_size));

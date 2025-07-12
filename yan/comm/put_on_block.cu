@@ -17,7 +17,7 @@
         }                                                                         \
     } while (0)
 
-#define THREADS_PER_BLOCK 1024
+#define THREADS_PER_BLOCK 256
 
 __global__ void set_and_shift_kernel(float *send_data, float *recv_data, int n_elems, int mype, int n_pes)
 {
@@ -31,7 +31,7 @@ __global__ void set_and_shift_kernel(float *send_data, float *recv_data, int n_e
     int peer = (mype + 1) % n_pes;
 
     int block_offset = blockIdx.x * blockDim.x;
-    nvshmemx_float_put_block(recv_data + block_offset, send_data + block_offset, min(blockDim.x, num_elems - block_offset),
+    nvshmemx_float_put_block(recv_data + block_offset, send_data + block_offset, min(blockDim.x, n_elems - block_offset),
                              peer);
 }
 
@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 {
     int mype, n_pes, mype_node;
     float *send_data, *recv_data;
-    int num_elems = 8192;
+    int num_elems = 8192 * 2;
     int num_blocks;
     cudaStream_t stream;
 
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
 
     CUDA_CHECK(cudaSetDevice(mype_node));
     CUDA_CHECK(cudaStreamCreate(&stream));
-    send_data = (float *)nvshmem_malloc(sizeof(float) * num_elems);
+    send_data = (float *)nvshmem_malloc(sizeof(float) * num_elems);  // 65536 B
     recv_data = (float *)nvshmem_malloc(sizeof(float) * num_elems);
     assert(send_data != NULL && recv_data != NULL);
 
