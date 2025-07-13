@@ -153,11 +153,10 @@ struct NvshmemExecutionPolicy
 
         if (rank != 0)
         {
+            // nvshmemx_signal_wait_until_on_stream(dont_produce, NVSHMEM_CMP_EQ, 0, stream);
+            // nvshmemx_signal_op_on_stream(dont_produce, 1, NVSHMEM_SIGNAL_SET, rank, stream); 
             checkCuda(BatchDecodeWithPagedKVCacheDispatched<kHeadDim, PosEncodingMode::kNone, AttentionVariant,
                                                             CudaLaunchPolicy>(params, tmp_v, tmp_s, false, stream));
-
-            nvshmemx_signal_wait_until_on_stream(dont_produce, NVSHMEM_CMP_EQ, 0, stream);
-            nvshmemx_signal_op_on_stream(dont_produce, 1, NVSHMEM_SIGNAL_SET, rank, stream);
             nvshmemx_half_put_signal_on_stream(params.q + ((rank - 1) * qo_data_size), params.o, qo_data_size, full, 1, NVSHMEM_SIGNAL_ADD, 0, stream);
         }
         if (rank == 0)
@@ -172,14 +171,20 @@ struct NvshmemExecutionPolicy
                 params.q += qo_data_size;
                 params.o += qo_data_size;
             }
-            nvshmemx_signal_op_on_stream(full, 0, NVSHMEM_SIGNAL_SET, 0, stream);
-            for (int r = 1; r < world_size; ++r)
-            {
-                nvshmemx_signal_op_on_stream(dont_produce, 0, NVSHMEM_SIGNAL_SET, r, stream);
-            }
+            // nvshmemx_signal_op_on_stream(full, 0, NVSHMEM_SIGNAL_SET, 0, stream);
+            // for (int r = 1; r < world_size; ++r)
+            // {
+            //     nvshmemx_signal_op_on_stream(dont_produce, 0, NVSHMEM_SIGNAL_SET, r, stream);
+            // }
             params.q -= qo_data_size * num_workers;
             params.o -= qo_data_size * num_workers;
         }
+        nvshmemx_barrier_all_on_stream(stream);
+        if(rank == 0)
+        {
+            nvshmemx_signal_op_on_stream(full, 0, NVSHMEM_SIGNAL_SET, 0, stream);
+        }
+
     }
 
     static void check(DTypeO *o, int rank, int world_size)
@@ -465,7 +470,6 @@ int main(int argc, char **argv)
     } else if (mode == "nvshmem")
     {
         int mype, n_pes, mype_node;
-        int num_blocks;
 
         nvshmem_init();
 
