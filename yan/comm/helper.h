@@ -98,6 +98,37 @@ struct GpuTimer
     }
 };
 
+struct CommTimer
+{
+    cudaEvent_t  _start;
+    cudaEvent_t  _stop;
+    CommTimer(int send_rank, int recv_rank)
+    {
+        CUDA_CHECK(cudaSetDevice(send_rank));
+        CUDA_CHECK(cudaEventCreate(&_start));
+        CUDA_CHECK(cudaSetDevice(recv_rank));
+        CUDA_CHECK(cudaEventCreate(&_stop));
+    }
+
+    void start(cudaStream_t stream_id)
+    {
+        CUDA_CHECK(cudaEventRecord(_start, stream_id));
+    }
+
+    void stop(cudaStream_t stream_id)
+    {
+        CUDA_CHECK(cudaEventRecord(_stop, stream_id));
+    }
+
+    float elapsed_millis()
+    {
+        float elapsed = 0.0;
+        CUDA_CHECK(cudaEventSynchronize(_stop));
+        CUDA_CHECK(cudaEventElapsedTime(&elapsed, _start, _stop));
+        return elapsed;
+    }
+
+};
 
 template <typename T>
 void print_raw_tensor(const T *data, size_t size, size_t width = 8)
