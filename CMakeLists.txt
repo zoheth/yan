@@ -40,7 +40,9 @@ find_package(Torch REQUIRED)
 include_directories(yan/include 
 third-party/cutlass/include
 third-party/cutlass/tools/util/include
-third-party/flashinfer/include)
+third-party/flashinfer/include
+third-party/xqa)
+
 include_directories(${CUDA_TOOLKIT_ROOT_DIR}/include ${TORCH_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS})
 link_directories(${TORCH_INSTALL_PREFIX}/lib ${CUDA_TOOLKIT_ROOT_DIR}/lib)
 

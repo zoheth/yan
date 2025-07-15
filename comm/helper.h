@@ -181,3 +181,15 @@ void print_raw_tensor(const std::vector<T> &data, size_t width = 8)
 {
     print_raw_tensor(data.data(), data.size(), width);
 }
+
+template <typename T>
+__host__ __device__ constexpr inline T div_up(T a, T b)
+{
+    return (a + b - 1) / b;
+}
+
+template <typename T>
+__host__ __device__ constexpr inline T round_up(T a, T b)
+{
+    return div_up(a, b) * b;
+}
