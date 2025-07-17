@@ -1,4 +1,5 @@
 #include <cassert>
+#include <device_host_transport/nvshmem_common_transport.h>
 #include <host/nvshmem_api.h>
 #include <host/nvshmemx_api.h>
 #include <iostream>
@@ -32,9 +33,9 @@ int num_blocks = 128;
 __global__ void produce_kernel(float *data, int n_elems_per_block, int rank)
 {
     // Data is guaranteed to be aligned
-    int start_idx = blockIdx.x * n_elems_per_block + threadIdx.x;
+    int start_idx = n_elems_per_block + threadIdx.x;
 
-    for (int i = start_idx; i < start_idx + n_elems_per_block; i += blockDim.x)
+    for (int i = start_idx + threadIdx.x; i < start_idx + n_elems_per_block; i += blockDim.x)
     {
         data[i] = rank;
     }
@@ -155,11 +156,19 @@ struct NvshmemExecutionPolicy
         {
             void *args[] = {&send_data, &recv_data, &num_elems_per_block, &rank, &signal};
             nvshmemx_collective_launch((const void *)produce_and_send_kernel, num_blocks, THREADS_PER_BLOCK, args, 0, stream);
+            // void *args[] = {&send_data, &num_elems_per_block, &rank};
+            // nvshmemx_collective_launch((const void *)produce_kernel, num_blocks, THREADS_PER_BLOCK, args, 0, stream);
+            // void *args1[] = {&send_data, &recv_data, &num_elems_per_block, &rank, &signal};
+            // nvshmemx_collective_launch((const void *)send_kernel, num_blocks, THREADS_PER_BLOCK, args1, 0, stream);
+            
+            // nvshmemx_float_put_signal_on_stream(recv_data, send_data, 16384, signal, 1, NVSHMEM_SIGNAL_ADD, 0, stream);
 
         } else
         {
+            // nvshmemx_signal_wait_until_on_stream(signal, NVSHMEM_CMP_GE, 3, stream);
             void *args[] = {&send_data, &recv_data, &num_elems_per_block, &rank, &world_size, &signal};
             nvshmemx_collective_launch((const void *)wait_and_consume_kernel, num_blocks, THREADS_PER_BLOCK, args, 0, stream);
+            // nvshmemx_signal_op_on_stream(signal, 0, NVSHMEM_SIGNAL_SET, 0, stream);
         }
         nvshmemx_barrier_all_on_stream(stream);
     }
