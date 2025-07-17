@@ -112,15 +112,14 @@ struct NcclExecutionPolicy
             produce_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(send_data, num_elems_per_block, rank);
         }
 
+        NCCL_CHECK(ncclGroupStart());
         if (rank == 0)
         {
-            NCCL_CHECK(ncclGroupStart());
             for (int r = 1; r < world_size; ++r)
             {
                 NCCL_CHECK(ncclRecv(recv_data, num_elems, ncclFloat, r, comm, stream));
                 recv_data += num_elems;
             }
-            NCCL_CHECK(ncclGroupEnd());
             // if(comm_timer)
             // {
             //     comm_timer->stop(stream);
@@ -134,12 +133,13 @@ struct NcclExecutionPolicy
             // }
             NCCL_CHECK(ncclSend(send_data, num_elems, ncclFloat, 0, comm, stream));
         }
+        NCCL_CHECK(ncclGroupEnd());
 
         if (rank == 0)
         {
 
             consume_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(send_data, recv_data, num_elems_per_block, rank, world_size);
-            // CUDA_CHECK(cudaStreamSynchronize(stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
             // comm_us += comm_timer->elapsed_millis() * 1000.0;
         }
     }
@@ -275,7 +275,7 @@ void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer 
     {
         nvshmem_free(send_data);
         nvshmem_free(recv_data);
-    } else
+    } else if(send_buffer==nullptr)
     {
         CUDA_CHECK(cudaFree(send_data));
         CUDA_CHECK(cudaFree(recv_data));
@@ -320,22 +320,24 @@ int main(int argc, char *argv[])
         }
         NCCL_CHECK(ncclGroupEnd());
 
-        NCCL_CHECK(ncclGroupStart());
         void **send_reg_handles = (void **)malloc(sizeof(*send_reg_handles) * world_size);
         void **recv_reg_handles = (void **)malloc(sizeof(*recv_reg_handles) * world_size);
-
+        
+        NCCL_CHECK(ncclGroupStart());
         for (int i = 0; i < world_size; ++i)
         {
-            NCCLCHECK(ncclCommWindowRegister(comms[i], send_buffers[i], data_size, (ncclWindow_t *)&send_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
-            NCCLCHECK(ncclCommWindowRegister(comms[i], recv_buffers[i], data_size, (ncclWindow_t *)&recv_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
+            NCCL_CHECK(ncclCommWindowRegister(comms[i], send_buffers[i], data_size, (ncclWindow_t *)&send_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
+            NCCL_CHECK(ncclCommWindowRegister(comms[i], recv_buffers[i], data_size, (ncclWindow_t *)&recv_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
         }
+        NCCL_CHECK(ncclGroupEnd());
 
         auto comms_timer = std::make_shared<CommTimer>(1, 0);
 
         std::vector<std::thread> threads;
         for (int i = 0; i < world_size; ++i)
         {
-            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
+            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], nullptr, nullptr);
+            // threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
         }
         for (auto &t : threads)
         {
@@ -343,6 +345,8 @@ int main(int argc, char *argv[])
         }
         for (int i = 0; i < world_size; ++i)
         {
+            NCCL_CHECK(ncclCommWindowDeregister(comms[i], (ncclWindow_t)send_reg_handles[i]));
+            NCCL_CHECK(ncclCommWindowDeregister(comms[i], (ncclWindow_t)recv_reg_handles[i]));
             ncclCommDestroy(comms[i]);
         }
     } else if (mode == "nvshmem")
