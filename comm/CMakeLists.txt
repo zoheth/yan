@@ -23,7 +23,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -DENABLE_FAST_DEBUG -O3 --ptxas-option
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/../../third-party/xqa)
 
-add_executable(test put_on_block.cu)
+add_executable(test n_to_one.cu)
 
 target_include_directories(test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdlib>
 #include <device_host_transport/nvshmem_common_transport.h>
 #include <host/nvshmem_api.h>
 #include <host/nvshmemx_api.h>
@@ -75,7 +76,7 @@ __global__ void wait_and_consume_kernel(float *output, float *recv_data, int n_e
 {
     signal = signal + blockIdx.x;
     nvshmem_signal_wait_until(signal, NVSHMEM_CMP_EQ, n_pes - 1);
-    
+
     // Data is guaranteed to be aligned
     int block_offset = blockIdx.x * n_elems_per_block * (n_pes - 1);
     int start_idx    = block_offset + threadIdx.x;
@@ -160,7 +161,7 @@ struct NvshmemExecutionPolicy
             // nvshmemx_collective_launch((const void *)produce_kernel, num_blocks, THREADS_PER_BLOCK, args, 0, stream);
             // void *args1[] = {&send_data, &recv_data, &num_elems_per_block, &rank, &signal};
             // nvshmemx_collective_launch((const void *)send_kernel, num_blocks, THREADS_PER_BLOCK, args1, 0, stream);
-            
+
             // nvshmemx_float_put_signal_on_stream(recv_data, send_data, 16384, signal, 1, NVSHMEM_SIGNAL_ADD, 0, stream);
 
         } else
@@ -204,7 +205,8 @@ void check(float *output, int rank, int world_size = 4)
 }
 
 template <typename ExecutionPolicy, bool PerfTest = true, bool CheckTest = true>
-void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer = nullptr, ncclComm_t comm = nullptr)
+void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer = nullptr,
+                ncclComm_t comm = nullptr, void *send_buffer = nullptr, void *recv_buffer = nullptr)
 {
     bool use_nvshmem_malloc = std::is_same<ExecutionPolicy, NvshmemExecutionPolicy>::value;
 
@@ -217,7 +219,12 @@ void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer 
     {
         send_data = (float *)nvshmem_malloc(sizeof(float) * num_elems * (world_size - 1)); // 65536 B * (world_size - 1)
         recv_data = (float *)nvshmem_malloc(sizeof(float) * num_elems * (world_size - 1));
-    } else
+    }else if(send_buffer && recv_buffer)
+    {
+        send_data = (float *)send_buffer;
+        recv_data = (float *)recv_buffer;
+    } 
+    else
     {
         CUDA_CHECK(cudaMalloc((void **)&send_data, sizeof(float) * num_elems * (world_size - 1)));
         CUDA_CHECK(cudaMalloc((void **)&recv_data, sizeof(float) * num_elems * (world_size - 1)));
@@ -292,6 +299,18 @@ int main(int argc, char *argv[])
         ncclComm_t   comms[world_size];
         NCCL_CHECK(ncclGetUniqueId(&id));
 
+        void *send_buffers[world_size];
+        void *recv_buffers[world_size];
+
+        size_t data_size = sizeof(float) * num_elems * (world_size - 1);
+
+        for (int i = 0; i < world_size; ++i)
+        {
+            CUDA_CHECK(cudaSetDevice(i));
+            ncclMemAlloc((void **)(send_buffers + i), data_size);
+            ncclMemAlloc((void **)(recv_buffers + i), data_size);
+        }
+
         // Initialize all communicators
         NCCL_CHECK(ncclGroupStart());
         for (int i = 0; i < world_size; ++i)
@@ -301,12 +320,22 @@ int main(int argc, char *argv[])
         }
         NCCL_CHECK(ncclGroupEnd());
 
+        NCCL_CHECK(ncclGroupStart());
+        void **send_reg_handles = (void **)malloc(sizeof(*send_reg_handles) * world_size);
+        void **recv_reg_handles = (void **)malloc(sizeof(*recv_reg_handles) * world_size);
+
+        for (int i = 0; i < world_size; ++i)
+        {
+            NCCLCHECK(ncclCommWindowRegister(comms[i], send_buffers[i], data_size, (ncclWindow_t *)&send_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
+            NCCLCHECK(ncclCommWindowRegister(comms[i], recv_buffers[i], data_size, (ncclWindow_t *)&recv_reg_handles[i], NCCL_WIN_COLL_SYMMETRIC));
+        }
+
         auto comms_timer = std::make_shared<CommTimer>(1, 0);
 
         std::vector<std::thread> threads;
         for (int i = 0; i < world_size; ++i)
         {
-            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i]);
+            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
         }
         for (auto &t : threads)
         {
