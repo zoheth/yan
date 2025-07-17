@@ -34,9 +34,9 @@ int num_blocks = 128;
 __global__ void produce_kernel(float *data, int n_elems_per_block, int rank)
 {
     // Data is guaranteed to be aligned
-    int start_idx = n_elems_per_block + threadIdx.x;
+    int start_idx = blockIdx.x * n_elems_per_block + threadIdx.x;
 
-    for (int i = start_idx + threadIdx.x; i < start_idx + n_elems_per_block; i += blockDim.x)
+    for (int i = start_idx; i < start_idx + n_elems_per_block; i += blockDim.x)
     {
         data[i] = rank;
     }
@@ -112,34 +112,27 @@ struct NcclExecutionPolicy
             produce_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(send_data, num_elems_per_block, rank);
         }
 
-        NCCL_CHECK(ncclGroupStart());
         if (rank == 0)
         {
+            NCCL_CHECK(ncclGroupStart());
             for (int r = 1; r < world_size; ++r)
             {
                 NCCL_CHECK(ncclRecv(recv_data, num_elems, ncclFloat, r, comm, stream));
                 recv_data += num_elems;
             }
-            // if(comm_timer)
-            // {
-            //     comm_timer->stop(stream);
-            // }
+            NCCL_CHECK(ncclGroupEnd());
+
             recv_data -= num_elems * (world_size - 1);
         } else
         {
-            // if(comm_timer)
-            // {
-            //     comm_timer->start(stream);
-            // }
             NCCL_CHECK(ncclSend(send_data, num_elems, ncclFloat, 0, comm, stream));
         }
-        NCCL_CHECK(ncclGroupEnd());
 
         if (rank == 0)
         {
 
             consume_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(send_data, recv_data, num_elems_per_block, rank, world_size);
-            CUDA_CHECK(cudaStreamSynchronize(stream));
+            // CUDA_CHECK(cudaStreamSynchronize(stream));
             // comm_us += comm_timer->elapsed_millis() * 1000.0;
         }
     }
@@ -336,8 +329,8 @@ int main(int argc, char *argv[])
         std::vector<std::thread> threads;
         for (int i = 0; i < world_size; ++i)
         {
-            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], nullptr, nullptr);
-            // threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
+            // threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], nullptr, nullptr);
+            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
         }
         for (auto &t : threads)
         {
