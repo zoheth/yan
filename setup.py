@@ -6,15 +6,6 @@ from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-jit_include_dir = (
-    "yan/include/gemm",
-    "yan/include/scan",
-    "yan/include/reduce",
-    "yan/include/softmax",
-    "yan/include/flash_attn",
-    "yan/include/tirplane",
-    "yan/include/comm"
-)
 third_party_include_dirs = (
     "third-party/cutlass/include/cute",
     "third-party/cutlass/include/cutlass",
@@ -33,8 +24,8 @@ class PostDevelopCommand(develop):
         # Make symbolic links of third-party include directories
         for d in third_party_include_dirs:
             dirname = d.split("/")[-1]
-            src_dir = f"{current_dir}/{d}"
-            dst_dir = f"{current_dir}/yan/include/{dirname}"
+            src_dir = os.path.join(current_dir, d)
+            dst_dir = os.path.join(current_dir, "yan/include", dirname)
             assert os.path.exists(src_dir)
             if os.path.exists(dst_dir):
                 assert os.path.islink(dst_dir)
@@ -44,8 +35,8 @@ class PostDevelopCommand(develop):
     @staticmethod
     def make_jit_include_symlinks_specific():
         tk_dir = "third-party/ThunderKittens"
-        src_dir = f"{current_dir}/{tk_dir}/include"
-        dst_dir = f"{current_dir}/yan/include/tk"
+        src_dir = os.path.join(current_dir, tk_dir, "include")
+        dst_dir = os.path.join(current_dir, "yan/include", "tk")
         assert os.path.exists(src_dir)
         if os.path.exists(dst_dir):
             assert os.path.islink(dst_dir)
@@ -81,33 +72,10 @@ class CustomBuildPy(build_py):
             shutil.copytree(src_dir, dst_dir)
 
 
-if __name__ == "__main__":
-    # noinspection PyBroadException
-    try:
-        cmd = ["git", "rev-parse", "--short", "HEAD"]
-        revision = "+" + subprocess.check_output(cmd).decode("ascii").rstrip()
-    except:
-        revision = ""
+setuptools.setup(
+    cmdclass={
+        "develop": PostDevelopCommand,
+        "build_py": CustomBuildPy,
+    },
+)
 
-    setuptools.setup(
-        name="yan",
-        version="1.0.0" + revision,
-        packages=["yan", "yan/jit", "yan/jit_kernels"],
-        package_data={
-            "yan": [
-                "include/cute/**/*",
-                "include/cutlass/**/*",
-                "include/gemm/**/*",
-                "include/scan/**/*",
-                "include/reduce/**/*",
-                "include/softmax/**/*",
-                "include/flash_attn/**/*",
-                "include/tirplane/**/*",
-                "include/comm/**/*",
-            ]
-        },
-        cmdclass={
-            "develop": PostDevelopCommand,
-            "build_py": CustomBuildPy,
-        },
-    )
