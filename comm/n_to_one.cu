@@ -199,6 +199,8 @@ template <typename ExecutionPolicy, bool PerfTest = true, bool CheckTest = true>
 void n2one_comm(int rank, int world_size, int local_rank,
                 ncclComm_t comm = nullptr, void *send_buffer = nullptr, void *recv_buffer = nullptr)
 {
+    printf("[Rank: %d] device %d\n", rank, local_rank);
+    fflush(stdout);
     bool use_nvshmem_malloc = std::is_same<ExecutionPolicy, NvshmemExecutionPolicy>::value;
 
     cudaStream_t stream;
@@ -229,7 +231,6 @@ void n2one_comm(int rank, int world_size, int local_rank,
     assert(num_elems % (THREADS_PER_BLOCK * num_blocks) == 0);
     int num_elems_per_block = num_elems / num_blocks;
 
-    double comm_us = 0.0;
     if (CheckTest)
     {
         ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm);
@@ -238,12 +239,10 @@ void n2one_comm(int rank, int world_size, int local_rank,
 
     if (PerfTest)
     {
-        double comm_us = 0.0;
         for (int i = 0; i < 10; ++i)
         {
             ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm);
         }
-        comm_us = 0.0;
         GpuTimer timer;
         timer.start();
         for (int i = 0; i < 100; ++i)
