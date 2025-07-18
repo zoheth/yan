@@ -27,12 +27,12 @@ add_executable(test n_to_one.cu)
 
 target_include_directories(test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-target_include_directories(test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../yan/include
-    ${CMAKE_SOURCE_DIR}/../third-party/cutlass/include
-    ${CMAKE_SOURCE_DIR}/../third-party/cutlass/tools/util/include
-    ${CMAKE_SOURCE_DIR}/../third-party/flashinfer/include
-)
+# target_include_directories(test PRIVATE
+#     ${CMAKE_SOURCE_DIR}/../yan/include
+#     ${CMAKE_SOURCE_DIR}/../third-party/cutlass/include
+#     ${CMAKE_SOURCE_DIR}/../third-party/cutlass/tools/util/include
+#     ${CMAKE_SOURCE_DIR}/../third-party/flashinfer/include
+# )
 
 # XQA
 # add_dependencies(test xqa_sources_h)
