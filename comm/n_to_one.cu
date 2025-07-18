@@ -104,7 +104,6 @@ struct NcclExecutionPolicy
 {
     static void run(int rank, int world_size, cudaStream_t stream,
                     float *send_data, float *recv_data, int num_elems_per_block,
-                    std::shared_ptr<CommTimer> comm_timer, double &comm_us,
                     ncclComm_t comm)
     {
         if (rank != 0)
@@ -142,7 +141,6 @@ struct NvshmemExecutionPolicy
 {
     static void run(int rank, int world_size, cudaStream_t stream,
                     float *send_data, float *recv_data, int num_elems_per_block,
-                    std::shared_ptr<CommTimer> comm_timer, double &comm_us,
                     ncclComm_t comm /* unused */)
     {
         static uint64_t *signal = (uint64_t *)nvshmem_calloc(num_blocks, sizeof(uint64_t));
@@ -198,26 +196,25 @@ void check(float *output, int rank, int world_size = 4)
 }
 
 template <typename ExecutionPolicy, bool PerfTest = true, bool CheckTest = true>
-void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer = nullptr,
+void n2one_comm(int rank, int world_size, int local_rank,
                 ncclComm_t comm = nullptr, void *send_buffer = nullptr, void *recv_buffer = nullptr)
 {
     bool use_nvshmem_malloc = std::is_same<ExecutionPolicy, NvshmemExecutionPolicy>::value;
 
     cudaStream_t stream;
     float       *send_data, *recv_data;
-    CUDA_CHECK(cudaSetDevice(rank));
+    CUDA_CHECK(cudaSetDevice(local_rank));
     CUDA_CHECK(cudaStreamCreate(&stream));
 
     if (use_nvshmem_malloc)
     {
         send_data = (float *)nvshmem_malloc(sizeof(float) * num_elems * (world_size - 1)); // 65536 B * (world_size - 1)
         recv_data = (float *)nvshmem_malloc(sizeof(float) * num_elems * (world_size - 1));
-    }else if(send_buffer && recv_buffer)
+    } else if (send_buffer && recv_buffer)
     {
         send_data = (float *)send_buffer;
         recv_data = (float *)recv_buffer;
-    } 
-    else
+    } else
     {
         CUDA_CHECK(cudaMalloc((void **)&send_data, sizeof(float) * num_elems * (world_size - 1)));
         CUDA_CHECK(cudaMalloc((void **)&recv_data, sizeof(float) * num_elems * (world_size - 1)));
@@ -235,7 +232,7 @@ void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer 
     double comm_us = 0.0;
     if (CheckTest)
     {
-        ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm_timer, comm_us, comm);
+        ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm);
         check(send_data, rank, world_size);
     }
 
@@ -244,31 +241,27 @@ void n2one_comm(int rank, int world_size, std::shared_ptr<CommTimer> comm_timer 
         double comm_us = 0.0;
         for (int i = 0; i < 10; ++i)
         {
-            ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm_timer, comm_us, comm);
+            ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm);
         }
         comm_us = 0.0;
         GpuTimer timer;
         timer.start();
         for (int i = 0; i < 100; ++i)
         {
-            ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm_timer, comm_us, comm);
+            ExecutionPolicy::run(rank, world_size, stream, send_data, recv_data, num_elems_per_block, comm);
         }
         timer.stop();
         float  elapsed_ms     = timer.elapsed_millis();
         double avg_runtime_us = double(elapsed_ms) / double(100) * 1000.0;
 
         std::cout << rank << "Avg runtime: " << avg_runtime_us << " us" << std::endl;
-        // if (rank == 0 && comm_timer)
-        // {
-        //     std::cout << "Comm time: " << comm_us / 1000.0 << " us" << std::endl;
-        // }
     }
 
     if (use_nvshmem_malloc)
     {
         nvshmem_free(send_data);
         nvshmem_free(recv_data);
-    } else if(send_buffer==nullptr)
+    } else if (send_buffer == nullptr)
     {
         CUDA_CHECK(cudaFree(send_data));
         CUDA_CHECK(cudaFree(recv_data));
@@ -288,6 +281,7 @@ int main(int argc, char *argv[])
     {
         std::cout << "Running in NCCL mode" << std::endl;
         int          world_size = 4;
+        int          local_size = 4;
         ncclUniqueId id;
         ncclComm_t   comms[world_size];
         NCCL_CHECK(ncclGetUniqueId(&id));
@@ -315,7 +309,7 @@ int main(int argc, char *argv[])
 
         void **send_reg_handles = (void **)malloc(sizeof(*send_reg_handles) * world_size);
         void **recv_reg_handles = (void **)malloc(sizeof(*recv_reg_handles) * world_size);
-        
+
         NCCL_CHECK(ncclGroupStart());
         for (int i = 0; i < world_size; ++i)
         {
@@ -324,13 +318,11 @@ int main(int argc, char *argv[])
         }
         NCCL_CHECK(ncclGroupEnd());
 
-        auto comms_timer = std::make_shared<CommTimer>(1, 0);
-
         std::vector<std::thread> threads;
         for (int i = 0; i < world_size; ++i)
         {
             // threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], nullptr, nullptr);
-            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, comms_timer, comms[i], send_buffers[i], recv_buffers[i]);
+            threads.emplace_back(n2one_comm<NcclExecutionPolicy, true>, i, world_size, i % local_size, comms[i], send_buffers[i], recv_buffers[i]);
         }
         for (auto &t : threads)
         {
@@ -351,7 +343,7 @@ int main(int argc, char *argv[])
         n_pes     = nvshmem_n_pes();
         mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
 
-        n2one_comm<NvshmemExecutionPolicy>(mype, n_pes);
+        n2one_comm<NvshmemExecutionPolicy>(mype, n_pes, mype_node);
 
         nvshmem_finalize();
     }
