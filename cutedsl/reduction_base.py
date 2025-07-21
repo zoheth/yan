@@ -6,7 +6,6 @@ from typing import Type, Tuple, Optional
 import cutlass
 import cutlass.cute as cute
 
-
 torch2cute_dtype_map = {
     torch.float16: cutlass.Float16,
     torch.bfloat16: cutlass.BFloat16,
@@ -41,7 +40,22 @@ class ReductionBase:
         
         block_x = self._calculate_threads_per_row()
         block_y =  cute.ceil_div(self.N // vec_size, block_x * self.cluster_n)
-        cols_per_block = 
+        # cols_per_block = 
+        
+    def _smem_size_in_bytes(self, tiler_mn, num_warps):
+        return (
+            cute.size_in_bytes(self.dtype, cute.make_layout(tiler_mn))
+            + self.stage * num_warps * self.cluster_n * (self.reduction_dtype.width // 8)
+            + self.stage * (cutlass.Int64.width // 8)
+        )
+        
+    def _allocate_reduction_buffer_and_mbar(
+        self, smem: cutlass.utils.SmemAllocator, tv_layout: cute.Layout, is_persistent: bool = False
+    ) -> Tuple[cute.Tensor, Optional[cute.Pointer]]:
+        reduction_buffer = smem.allocate_tensor(
+            self.reduction_dtype,
+            
+        )
         
     
     
